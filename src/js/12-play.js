@@ -31,7 +31,7 @@
         h('div', h('div.t1.gold-text', CH.store.displayTitle()), h('div.who', { style: { '--c': CH.participantColor(c.n) } }, h('i'), `כוורת ${c.n}`))),
       h('div.spacer'),
       refs.score));
-    el.append(h('div.ph-progress', { style: { top: '74px', left: '770px' } }, refs.progLbl, refs.dots));
+    el.append(h('div.ph-progress', { style: { top: '64px', left: '770px' } }, refs.progLbl, refs.dots));
     CH.u.fitWidth(el.querySelector('.ph-brand .t1'), 44, 26);
 
     // ladder (tree + climber)
