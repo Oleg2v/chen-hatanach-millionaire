@@ -350,7 +350,7 @@
     const preview = h('div.tp', { 'aria-hidden': 'true' }, h('div.tp-rays'), h('div.tp-emblem', { html: emblemHTML() }), tpTitle,
       h('div.tp-cap', 'תצוגה מקדימה · מסך הפתיחה'));
     refreshPreview();
-    const identity = card('title', 'שם המשחק והרמה', 'הכותרת שמופיעה במסך הפתיחה ובראש לוח המשתתפים.',
+    const identity = card('title', 'שם המשחק והרמה', 'הכותרת שמופיעה במסך הפתיחה ובראש לוח הכוורות.',
       h('div.field-row',
         textField('שם המשחק', st.title, 'כוכב התנ"ך', (v) => save({ title: v }, true)),
         textField('רמה / שלב', st.level, 'רמה 2', (v) => save({ level: v }, true))),
@@ -363,33 +363,35 @@
       const s = S().getSettings(), a = S().activeSet();
       const ok = a.questions.filter(valid).length, need = s.participants * s.perParticipant;
       sumEl.replaceChildren(
-        h('div.rs-item', h('b', nf(s.participants)), h('span', 'משתתפים')), h('span.rs-x', '×'),
+        h('div.rs-item', h('b', nf(s.participants)), h('span', 'כוורות')), h('span.rs-x', '×'),
         h('div.rs-item', h('b', nf(s.perParticipant)), h('span', 'שאלות')), h('span.rs-x', '='),
         h('div.rs-item', h('b', nf(need)), h('span', 'שאלות בסבב')),
         h('div.rs-sep'),
-        h('div.rs-item', h('b', nf(s.perParticipant * s.points)), h('span', 'ניקוד מרבי למשתתף')));
+        h('div.rs-item', h('b', nf(s.perParticipant * s.points)), h('span', 'ניקוד מרבי לכוורת')));
       const go = btn('לעריכת השאלות', { kind: 'link', icon: 'next', onclick: () => { selSetId = a.id; setTab('questions'); } });
       if (ok < s.perParticipant) {
         poolNote.replaceChildren(h('div.callout.warn', ic('warn'), h('div',
           h('b', ok ? `באוסף הפעיל «${a.name}» יש רק ${okCount(ok)}` : `באוסף הפעיל «${a.name}» אין שאלות תקינות`),
-          ` — פחות מ־${s.perParticipant} שאלות למשתתף. ${ok ? `כל משתתף יקבל ${qCount(ok)} בלבד.` : 'יש להוסיף או לייבא שאלות לפני המשחק.'}`), go));
+          ` — פחות מ־${s.perParticipant} שאלות לכוורת. ${ok ? `כל כוורת תכלול ${qCount(ok)} בלבד.` : 'יש להוסיף או לייבא שאלות לפני המשחק.'}`), go));
       } else if (ok < need) {
         poolNote.replaceChildren(h('div.callout.info', ic('info'), h('div',
-          `באוסף הפעיל «${a.name}» יש ${okCount(ok)} והסבב המלא דורש ${nf(need)} — שאלות יחזרו על עצמן בין משתתפים (לא אצל אותו משתתף).`)));
+          `באוסף הפעיל «${a.name}» יש ${okCount(ok)} והסבב המלא דורש ${nf(need)} — שאלות יחזרו על עצמן בין כוורות (לא באותה כוורת).`)));
       } else {
         poolNote.replaceChildren(h('div.callout.ok', ic('check'), h('div', `באוסף הפעיל «${a.name}» יש ${okCount(ok)} — מספיק לסבב מלא בלי חזרות.`)));
       }
     }
     refreshPool();
-    const round = card('users', 'מבנה הסבב', 'כמה משתתפים, כמה שאלות לכל אחד, וכמה נקודות שווה כל תשובה נכונה.',
-      srow('מספר משתתפים', 'בין 1 ל־60 משבצות בלוח המשתתפים', stepper(st.participants, 1, 60, 'מספר משתתפים', (v) => save({ participants: v }))),
-      srow('שאלות לכל משתתף', 'כמה שאלות יקבל כל משתתף בתורו',
-        segmented([1, 4, 10].map((n) => ({ value: n, label: String(n) })), st.perParticipant, 'שאלות לכל משתתף', (v) => save({ perParticipant: v }))),
-      srow('ניקוד לשאלה', 'נקודות על כל תשובה נכונה', stepper(st.points, 1, 1000, 'ניקוד לשאלה', (v) => save({ points: v }))),
+    const round = card('users', 'מבנה הסבב', 'כמה כוורות על הלוח, כמה שאלות בכל כוורת, וכמה זמן ונקודות לכל שאלה.',
+      srow('מספר כוורות', 'בין 1 ל־60 משבצות בלוח הכוורות', stepper(st.participants, 1, 60, 'מספר כוורות', (v) => save({ participants: v }))),
+      srow('שאלות בכל כוורת', 'כמה שאלות יישאל המשתתף שבחר בכוורת',
+        segmented([1, 4, 10].map((n) => ({ value: n, label: String(n) })), st.perParticipant, 'שאלות בכל כוורת', (v) => save({ perParticipant: v }))),
+      srow('ניקוד לשאלה', 'ברירת מחדל — אפשר לקבוע ניקוד אחר לשאלה מסוימת בטבלת השאלות', stepper(st.points, 1, 1000, 'ניקוד לשאלה', (v) => save({ points: v }))),
+      srow('זמן מענה לשאלה', 'שעון עצר על לוח השאלה. כשהזמן נגמר מוצגת התשובה הנכונה, בלי ניקוד.',
+        segmented([0, 15, 20, 30, 45, 60].map((n) => ({ value: n, label: n ? `${n} שנ׳` : 'ללא' })), st.answerTime, 'זמן מענה לשאלה', (v) => save({ answerTime: v }))),
       sumEl, poolNote);
 
     // --- behaviour toggles ---
-    const behaviour = card('sparkle', 'גלגלי הצלה, תוכן וצליל', null,
+    const behaviour = card('sparkle', 'גלגלי הצלה, תוכן וצליל', 'איך המשחק מתנהג באולם, ואיך נשמר טקסט שמודבק מתוכנות תנ״ך.',
       srow('50:50 מחלק את הניקוד בחצי', 'משתתף שנעזר בגלגל ההצלה יקבל חצי מהניקוד על אותה שאלה.',
         toggle(st.halveOn5050, '50:50 מחלק את הניקוד בחצי', (v) => save({ halveOn5050: v }))),
       srow('הסרת טעמי המקרא בהדבקה (הניקוד נשמר)', 'טקסט שמודבק מתוכנות תנ״ך או מיובא מקובץ יישמר עם ניקוד ובלי טעמים.',
@@ -403,6 +405,8 @@
 
     // --- branding ---
     const brand = card('palette', 'מיתוג', 'קובצי הלוגו של חן התנ״ך (PNG שקוף). בלי קבצים מוצג שחזור מובנה של הלוגו.',
+      srow('סגנון רקע', 'מודרני — אופק של אור וזהב (לפי האפיון) · קלאסי — קו הרקיע של ירושלים מהמשחק המקורי',
+        segmented([{ value: 'modern', label: 'מודרני' }, { value: 'classic', label: 'קלאסי' }], st.theme || 'modern', 'סגנון רקע', (v) => save({ theme: v }))),
       h('div.brand-grid', brandSlot('wordmark', 'לוגו מילולי'), brandSlot('emblem', 'סמל')));
 
     // --- current round ---
@@ -410,19 +414,19 @@
     const played = Object.keys(r.results || {}).filter((n) => +n <= st.participants).length;
     const cur = r.current && r.current.n;
     const cols = Math.ceil(st.participants / Math.ceil(st.participants / 12));     // even rows, no orphans (16 → 2×8)
-    const tiles = h('div.rc-tiles', { 'aria-label': `${nf(played)} מתוך ${nf(st.participants)} משתתפים שיחקו`, style: { '--cols': cols } },
+    const tiles = h('div.rc-tiles', { 'aria-label': `${nf(played)} מתוך ${nf(st.participants)} כוורות שוחקו`, style: { '--cols': cols } },
       Array.from({ length: st.participants }, (_, i) => {
         const n = i + 1, res = S().resultOf(n);
         return h('span.rc-tile' + (res ? '.is-done' : '') + (cur === n ? '.is-now' : ''),
-          { style: { '--c': EMBLEM[i % EMBLEM.length] }, title: res ? `משתתף ${n} · ${U.fmtScore(res.score)} נק׳` : cur === n ? `משתתף ${n} · משחק עכשיו` : `משתתף ${n}` }, String(n));
+          { style: { '--c': EMBLEM[i % EMBLEM.length] }, title: res ? `כוורת ${n} · ${U.fmtScore(res.score)} נק׳` : cur === n ? `כוורת ${n} · במשחק עכשיו` : `כוורת ${n}` }, String(n));
       }));
-    const roundCard = card('trophy', 'הסבב הנוכחי', 'משבצת צבעונית = משתתף שסיים לשחק.',
-      h('div.rc-stat', h('div.rc-num', h('b', nf(played)), h('span', ` / ${nf(st.participants)}`)), h('div.rc-lbl', played ? 'משתתפים סיימו לשחק' : 'אף משתתף עוד לא שיחק')),
+    const roundCard = card('trophy', 'הסבב הנוכחי', 'משבצת צבעונית = כוורת ששוחקה.',
+      h('div.rc-stat', h('div.rc-num', h('b', nf(played)), h('span', ` / ${nf(st.participants)}`)), h('div.rc-lbl', played ? 'כוורות שוחקו' : 'אף כוורת עוד לא שוחקה')),
       tiles,
-      h('p.rc-note', 'איפוס מוחק את התוצאות של כל המשתתפים ומתחיל סבב חדש. השאלות וההגדרות נשמרות.'),
+      h('p.rc-note', 'איפוס מוחק את התוצאות של כל הכוורות ומתחיל סבב חדש. השאלות וההגדרות נשמרות.'),
       h('div.rc-foot',
         btn('איפוס הסבב', { kind: 'danger', icon: 'refresh', onclick: async () => {
-          const ok = await ui('confirm', 'איפוס הסבב', played ? `התוצאות של ${nf(played)} משתתפים יימחקו, וכל המשבצות ייפתחו מחדש.` : 'כל המשבצות ייפתחו מחדש וחפיסת השאלות תעורבב מחדש.', { ok: 'איפוס הסבב', danger: true });
+          const ok = await ui('confirm', 'איפוס הסבב', played ? `התוצאות של ${nf(played)} כוורות יימחקו, וכל הכוורות ייפתחו מחדש.` : 'כל הכוורות ייפתחו מחדש וחפיסת השאלות תעורבב מחדש.', { ok: 'איפוס הסבב', danger: true });
           if (!ok) return;
           S().resetRound(); markSaved(); toast('הסבב אופס — אפשר להתחיל מחדש', 'ok');
           setTab('settings', { keepScroll: true });
@@ -526,8 +530,10 @@
     { f: 'w1', label: 'תשובה שגויה 2', cls: 'c-bad', ph: 'מסיח' },
     { f: 'w2', label: 'תשובה שגויה 3', cls: 'c-bad', ph: 'מסיח' },
     { f: 'source', label: 'מקור', cls: 'c-src', ph: 'ספר פרק, פסוק' },
+    { f: 'points', label: 'ניקוד', cls: 'c-pts', ph: '—', title: 'ניקוד לשאלה זו (ריק = ברירת המחדל מההגדרות)' },
   ];
-  const getF = (q, f) => (f[0] === 'w' ? (q.wrong || [])[+f[1]] : q[f]) || '';
+  const getF = (q, f) => (f === 'points' ? (q.points > 0 ? String(q.points) : '') : (f[0] === 'w' ? (q.wrong || [])[+f[1]] : q[f]) || '');
+  const parsePts = (v) => { const n = parseFloat(String(v || '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? Math.min(1000, n) : null; };
   const Q = { setId: null, tbody: null, search: '', onlyBad: false, timers: new Map(), refs: {}, rest: null };
   const FIRST_ROWS = 60, ROW_BATCH = 90;
   const pending = new Map();         // qid → { setId, tr, timer } (deleted, waiting for undo)
@@ -537,14 +543,14 @@
   function readRow(tr) {
     const v = {};
     tr.querySelectorAll('textarea.q-cell').forEach((ta) => { v[ta.dataset.f] = U.cleanHebrew(ta.value); });
-    return { q: v.q || '', correct: v.correct || '', wrong: [v.w0 || '', v.w1 || '', v.w2 || ''], source: v.source || '' };
+    return { q: v.q || '', correct: v.correct || '', wrong: [v.w0 || '', v.w1 || '', v.w2 || ''], source: v.source || '', points: parsePts(v.points) };
   }
 
   function rowEl(q, idx) {
     const tr = h('tr.q-row', { dataset: { id: q.id, set: Q.setId || '' } });
     tr.append(h('td.c-num', h('span.q-num', String(idx + 1)), h('span.q-flag', { html: I.warn, title: '' })));
-    FIELDS.forEach(({ f, label, cls, ph }) => {
-      const ta = h('textarea.q-cell', { rows: 1, 'data-f': f, placeholder: ph, spellcheck: 'false', dir: 'rtl', 'aria-label': label });
+    FIELDS.forEach(({ f, label, cls, ph, title }) => {
+      const ta = h('textarea.q-cell', { rows: 1, 'data-f': f, placeholder: f === 'points' ? String(S().getSettings().points) : ph, spellcheck: 'false', dir: 'rtl', 'aria-label': label, title: title || null, inputmode: f === 'points' ? 'decimal' : null });
       ta.value = getF(q, f);
       const td = h('td.' + cls, ta);
       if (f === 'q') td.append(h('div.q-issue'));
@@ -564,7 +570,7 @@
     if (issue) issue.replaceChildren(...(bad ? [ic('warn'), h('span', errTxt(errs))] : []));
     const flag = tr.querySelector('.q-flag'); if (flag) flag.title = bad ? errTxt(errs) : '';
     // point at the exact cells that still need text
-    tr.querySelectorAll('textarea.q-cell').forEach((ta) => ta.classList.toggle('is-miss', bad && ta.dataset.f !== 'source' && !ta.value.trim()));
+    tr.querySelectorAll('textarea.q-cell').forEach((ta) => ta.classList.toggle('is-miss', bad && ta.dataset.f !== 'source' && ta.dataset.f !== 'points' && !ta.value.trim()));
   }
 
   function scheduleSave(tr) {
@@ -728,7 +734,7 @@
     Q.rest = null;
     if (all.length > FIRST_ROWS) renderRest(tbody, all, FIRST_ROWS);
     const thead = h('thead', h('tr', h('th.c-num', '#'), FIELDS.map(({ label, cls }) => h('th.' + cls, cls === 'c-ok' || cls === 'c-bad' ? h('i.dot') : null, label)), h('th.c-act', h('span.sr', 'פעולות'))));
-    const colgroup = h('colgroup', h('col.w-num'), h('col.w-q'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-src'), h('col.w-act'));
+    const colgroup = h('colgroup', h('col.w-num'), h('col.w-q'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-src'), h('col.w-pts'), h('col.w-act'));
     const table = h('table.qt', colgroup, thead, tbody);
     bindTable(tbody);
 
@@ -955,6 +961,7 @@
     if (/נכונ|correct|answer|right|^תשובה$|^ans/.test(c)) return 'correct';
     if (/שאל|question|^q$/.test(c)) return 'q';
     if (/מקור|source|ref|פסוק|מראהמקום/.test(c)) return 'source';
+    if (/ניקוד|נקודות|points?|score/.test(c)) return 'points';
     return null;
   }
 
@@ -973,7 +980,7 @@
     return out;
   }
 
-  const POS = ['q', 'correct', 'w0', 'w1', 'w2', 'source'];
+  const POS = ['q', 'correct', 'w0', 'w1', 'w2', 'source', 'points'];
   /** Array-of-arrays (sheet) → raw question objects. */
   function rowsFromAoa(aoa) {
     const rows = aoa.filter((r) => Array.isArray(r) && r.some((c) => String(c == null ? '' : c).trim()));
@@ -990,7 +997,7 @@
       cols = numFirst ? [null, ...POS] : POS.slice();
     }
     return rows.slice(start).map((r) => {
-      const raw = { q: '', correct: '', wrong: ['', '', ''], source: '' };
+      const raw = { q: '', correct: '', wrong: ['', '', ''], source: '', points: '' };
       cols.forEach((k, i) => {
         if (!k) return;
         const v = String(r[i] == null ? '' : r[i]);
@@ -1004,7 +1011,7 @@
   function rawFromObject(o) {
     if (Array.isArray(o)) return rowsFromAoa([o])[0] || null;
     if (!o || typeof o !== 'object') return null;
-    const raw = { q: '', correct: '', wrong: ['', '', ''], source: '' };
+    const raw = { q: '', correct: '', wrong: ['', '', ''], source: '', points: o.points != null ? String(o.points) : '' };
     const keys = Object.keys(o);
     if (Array.isArray(o.wrong)) o.wrong.slice(0, 3).forEach((w, i) => { raw.wrong[i] = String(w == null ? '' : w); });
     const cols = mapColumns(keys.map((k) => (k === 'wrong' && Array.isArray(o.wrong) ? null : headerKey(k))));
@@ -1059,12 +1066,12 @@
   }
 
   // ---- templates ----
-  const templateAoa = () => [HEAD, ...S().DEMO_QUESTIONS.map((q) => [q.q, q.correct, ...q.wrong, q.source])];
+  const templateAoa = () => [[...HEAD, 'ניקוד (רשות)'], ...S().DEMO_QUESTIONS.map((q) => [q.q, q.correct, ...q.wrong, q.source, ''])];
   function downloadXlsxTemplate() {
     if (!window.XLSX) { toast('רכיב Excel לא זמין', 'err'); return; }
     const ws = XLSX.utils.aoa_to_sheet(templateAoa());
-    ws['!cols'] = [{ wch: 62 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 20 }];
-    ws['!autofilter'] = { ref: 'A1:F1' };
+    ws['!cols'] = [{ wch: 62 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 12 }];
+    ws['!autofilter'] = { ref: 'A1:G1' };
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'שאלות');
     wb.Workbook = { Views: [{ RTL: true }] };
@@ -1222,7 +1229,7 @@
       opt('new', 'layers', 'אוסף חדש', 'אוסף נפרד לתחרות או לרמה'));
     // one destination row under the cards: which set, or the new set's name
     const dest = h('label.pv-dest', h('span.pv-dest-lbl', ic(IM.target === 'new' ? 'edit' : 'layers'),
-      IM.target === 'new' ? 'שם האוסף החדש' : IM.target === 'replace' ? 'האוסף שבו יוחלפו השאלות' : 'האוסף שאליו יתווספו השאלות'),
+      IM.target === 'new' ? 'שם האוסף החדש:' : IM.target === 'replace' ? 'האוסף שבו יוחלפו השאלות:' : 'האוסף שאליו יתווספו השאלות:'),
     IM.target === 'new' ? nameIn : setSel());
 
     // table

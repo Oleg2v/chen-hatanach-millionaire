@@ -237,7 +237,7 @@
   function brass(ctx, dest, t, f, len, { amp = 0.04, long = false, bright = 1 } = {}) {
     synth(ctx, dest, t, f, len, {
       type: 'sawtooth', n: 3, spread: 7, amp, a: 0.028, d: 0.16, s: 0.78, r: long ? 0.45 : 0.08,
-      cut0: f * 1.3, cut: Math.min(f * 7 * bright, 6500), cutS: Math.min(f * 4.2 * bright, 4200), cutT: 0.06, q: 1.1,
+      cut0: f * 1.3, cut: Math.min(f * 8 * bright, 7000), cutS: Math.min(f * 5.2 * bright, 4600), cutT: 0.06, q: 1.1,
       scoop: 30, vib: long ? 9 : 0, vibAt: 0.35, vibRate: 5.2,
     });
   }
@@ -328,6 +328,7 @@
     const L = layer(ctx, d, { wet: 0.22, pan: i % 2 ? -0.22 : 0.22, hp: 200 });
     pluck(ctx, L, t, f, { amp: 0.16, dur: 0.5, bright: 0.24, t60: 0.55, a: 0.003 });
     tone(ctx, L, t, f, { amp: 0.06, a: 0.004, dur: 0.28 });
+    bell(ctx, L, t + 0.004, f * 2, { amp: 0.02, dur: 0.32, kind: 'celesta' });   // faint glint, the question's palette
   }
 
   const LOCK = 1.5;
@@ -383,14 +384,18 @@
 
   function sWrong(ctx, d, t) {
     const L = layer(ctx, d, { wet: 0.25 });
-    const note = (at, m, len, droop) => {            // soft "bwom": triangle + sine octave, closing filter
+    // a soft, hollow "oo" colour around 650 Hz: the fundamentals (F3/D3) are below what projector speakers play,
+    // so the 2nd–4th harmonics have to carry the notes — still round and gentle, never buzzy
+    const vowel = ctx.createBiquadFilter(); vowel.type = 'peaking'; vowel.frequency.value = 650; vowel.Q.value = 1.2; vowel.gain.value = 5;
+    vowel.connect(L);
+    const note = (at, m, len, droop) => {            // soft "bwom": triangle + a little square + sine octave, closing filter
       const f = mtof(m);
-      const lp = filter(ctx, 'lowpass', 1400, 0.7);
-      lp.frequency.setValueAtTime(1400, at); lp.frequency.exponentialRampToValueAtTime(560, at + len);
+      const lp = filter(ctx, 'lowpass', 1500, 0);
+      lp.frequency.setValueAtTime(1500, at); lp.frequency.exponentialRampToValueAtTime(600, at + len);
       const g = gainNode(ctx, 0);
-      const end = envASR(g.gain, at, 0.17, 0.025, 0.35, 0.55, at + len - 0.15, 0.32);
-      lp.connect(g); g.connect(L);
-      for (const [type, mul, lvl] of [['triangle', 1, 1], ['sine', 2, 0.4], ['sine', 0.5, 0.28]]) {
+      const end = envASR(g.gain, at, 0.17, 0.03, 0.35, 0.55, at + len - 0.15, 0.32);
+      lp.connect(g); g.connect(vowel);
+      for (const [type, mul, lvl] of [['triangle', 1, 0.9], ['square', 1, 0.16], ['sine', 2, 0.42], ['sine', 0.5, 0.2]]) {
         const o = ctx.createOscillator(); o.type = type; o.frequency.value = f * mul;
         if (droop) { o.detune.setValueAtTime(0, at + len * 0.3); o.detune.linearRampToValueAtTime(-55, at + len + 0.2); }
         const og = gainNode(ctx, lvl); o.connect(og); og.connect(lp);
@@ -401,17 +406,31 @@
     note(t + 0.34, 50, 0.78, true);                   // D3 — minor third down, drooping
   }
 
-  function poof(ctx, d, t, { pan, f, f1, amp, bub }) {
-    const L = layer(ctx, d, { wet: 0.4, pan });
-    noise(ctx, L, t, 0.42, { amp, type: 'lowpass', f, f1, q: 0.8, a: 0.012 });
-    tone(ctx, L, t, bub[0], { f1: bub[1], glide: 0.2, amp: amp * 0.45, a: 0.006, dur: 0.24 });
+  /** One answer crumbling away: a soft descending "poof" plus glittering dust that drifts right → left with the
+   *  on-screen dissolve (CH.fx.dissolve sweeps each box right → left in ~0.9 s). */
+  function poof(ctx, d, t, { f, f1, amp, bub }) {
+    const L = layer(ctx, d, { wet: 0.4 });
+    let dest = L;
+    if (ctx.createStereoPanner) {
+      const p = ctx.createStereoPanner();
+      p.pan.setValueAtTime(0.45, t); p.pan.linearRampToValueAtTime(-0.45, t + 0.8);
+      p.connect(L); dest = p;
+    }
+    noise(ctx, dest, t, 0.5, { amp, type: 'lowpass', f, f1, q: 0.8, a: 0.014 });
+    tone(ctx, dest, t, bub[0], { f1: bub[1], glide: 0.2, amp: amp * 0.45, a: 0.006, dur: 0.24 });
+    const D = layer(ctx, { out: dest, fx: d.fx }, { wet: 0.5, hp: 1500 });
+    for (let i = 0; i < 11; i++) {                    // dust: tiny high pings, dense at first, thinning out as the box goes
+      const k = i / 10, at = t + 0.03 + 0.7 * Math.pow(k, 1.6) + rr(0, 0.035);
+      tone(ctx, D, at, mtof(penta(Math.floor(rr(8, 14)), 74)), { amp: amp * rr(0.06, 0.1) * (1 - 0.6 * k), a: 0.0015, dur: rr(0.05, 0.11) });
+    }
   }
   function sFifty(ctx, d, t) {
     const L = layer(ctx, d, { wet: 0.35 });
-    noise(ctx, L, t, 0.45, { amp: 0.07, type: 'bandpass', f: 1400, f1: 7000, q: 2.5, shape: swell(0.4) }); // magic swish
-    sparkles(ctx, d, t + 0.02, 0.3, 7, { base: 86, lo: 12, hi: 4, ordered: true, amp: 0.03 });
-    poof(ctx, d, t + 0.36, { pan: 0.35, f: 3800, f1: 260, amp: 0.16, bub: [560, 190] });
-    poof(ctx, d, t + 0.64, { pan: -0.35, f: 3000, f1: 200, amp: 0.14, bub: [430, 140] });
+    noise(ctx, L, t, 0.4, { amp: 0.07, type: 'bandpass', f: 1400, f1: 7000, q: 2.5, shape: swell(0.35) }); // magic swish
+    sparkles(ctx, d, t, 0.24, 6, { base: 86, lo: 12, hi: 5, ordered: true, amp: 0.028 });
+    // in step with the two answers crumbling (12-play.js staggers them 220 ms apart)
+    poof(ctx, d, t + 0.05, { f: 3800, f1: 260, amp: 0.15, bub: [560, 190] });
+    poof(ctx, d, t + 0.27, { f: 3000, f1: 200, amp: 0.14, bub: [430, 140] });
   }
 
   function sClimb(ctx, d, t, o) {
@@ -459,7 +478,11 @@
   }
 
   function sVictory(ctx, d, t) {
-    const B = layer(ctx, d, { wet: 0.22 });
+    // a brass section seated across the stage (bass centred, top voice on the right) — wide, not a mono block
+    // (an equal-power pan feeds each side 0.707 of a mono source, where an unpanned one feeds both 1.0 — hence √2)
+    const V = [-0.34, 0.08, 0.36].map((pan) => layer(ctx, d, { gain: Math.SQRT2, wet: 0.22, pan }));
+    const Bass = layer(ctx, d, { wet: 0.16, hp: 70 });
+    const Bl = layer(ctx, d, { wet: 0.3, hp: 250 });
     // I – I – IV – V – I in D major; the top voice climbs A A B C♯ D
     const chords = [
       [0.0, 0.17, [62, 66, 69], 50],
@@ -470,16 +493,16 @@
     ];
     for (const [at, len, notes, bass] of chords) {
       const long = len > 1;
-      notes.forEach((m, i) => brass(ctx, B, t + at, mtof(m), len, { amp: i === notes.length - 1 ? 0.05 : 0.038, long }));
-      brass(ctx, B, t + at, mtof(bass), len, { amp: 0.045, long, bright: 0.55 });
-      bell(ctx, B, t + at, mtof(notes[notes.length - 1] + 12), { amp: long ? 0.06 : 0.04, dur: long ? 1.6 : 0.5, kind: 'chime' });
+      notes.forEach((m, i) => brass(ctx, V[i], t + at, mtof(m), len, { amp: i === notes.length - 1 ? 0.052 : 0.038, long }));
+      brass(ctx, Bass, t + at, mtof(bass), len, { amp: 0.036, long, bright: 0.6 });
+      bell(ctx, Bl, t + at, mtof(notes[notes.length - 1] + 12), { amp: long ? 0.06 : 0.04, dur: long ? 1.6 : 0.5, kind: 'chime' });
     }
     // timpani: two light hits, a roll on the dominant, the big landing
     const T = layer(ctx, d, { wet: 0.25 });
     timp(ctx, T, t, mtof(50), 0.16, 0.5);
     timp(ctx, T, t + 0.2, mtof(50), 0.14, 0.5);
     for (let x = 0.8, i = 0; x < 1.19; x += 0.042, i++) timp(ctx, T, t + x, mtof(45) * (i % 2 ? 1.003 : 1), 0.03 + 0.11 * ((x - 0.8) / 0.4), 0.35);
-    timp(ctx, T, t + 1.22, mtof(50), 0.3, 1.6);
+    timp(ctx, T, t + 1.22, mtof(50), 0.27, 1.2);
     // cymbal-like sizzle: swell into the landing, then a long shimmer
     const C = layer(ctx, d, { wet: 0.4 });
     noise(ctx, C, t + 0.8, 0.44, { amp: 0.035, type: 'highpass', f: 6000, q: 0.6, shape: (x) => Math.pow(x, 3) * (1 - Math.pow(x, 40)) });
@@ -498,14 +521,14 @@
     tile: { dur: 0.8, db: 1, gap: 120, bake: 1, fn: sTile },
     question: { dur: 0.95, db: 2.5, gap: 200, bake: 1, fn: sQuestion },
     answer: { dur: 0.5, db: 1.5, gap: 20, fn: sAnswer },
-    lock: { dur: LOCK, db: -2, gap: 200, bake: 1, fn: sLock },
-    correct: { dur: 1.6, db: 6, gap: 200, bake: 1, fn: sCorrect },
-    wrong: { dur: 1.2, db: -2.5, gap: 200, bake: 1, fn: sWrong },
+    lock: { dur: LOCK, db: 0, gap: 200, bake: 1, fn: sLock },
+    correct: { dur: 1.6, db: 5, gap: 200, bake: 1, fn: sCorrect },
+    wrong: { dur: 1.2, db: -1, gap: 200, bake: 1, fn: sWrong },
     fifty: { dur: 1.15, db: 8.5, gap: 200, bake: 1, fn: sFifty },
     climb: { dur: 0.5, db: 3, gap: 60, bake: 1, uses: 'step', fn: sClimb },
     score: { dur: 0.04, db: -4.5, gap: 45, fn: sScore },
     points: { dur: 0.5, db: 1.5, gap: 60, bake: 1, fn: sPoints },
-    victory: { dur: 3.3, db: 3.5, gap: 500, bake: 1, fn: sVictory },
+    victory: { dur: 3.3, db: 4.5, gap: 500, bake: 1, fn: sVictory },
     back: { dur: 0.17, db: 5, gap: 60, fn: sBack },
     reveal: { dur: 0.55, db: 3, gap: 120, bake: 1, fn: sReveal },
   };
@@ -584,7 +607,9 @@
     if (ctx || failed) return ctx;
     if (!AC) { failed = true; return null; }
     try {
-      ctx = new AC({ latencyHint: 'interactive' });
+      // 'balanced' (≈ 10–20 ms) instead of the minimum buffer: a little headroom against dropouts on a school laptop
+      // that is also drawing the animated background at 60 fps; still far below what anyone can hear as lag
+      ctx = new AC({ latencyHint: 'balanced' });
       chain = buildChain(ctx);
       chain.master.gain.value = muted ? 0 : 1;
     } catch (e) { failed = true; ctx = null; chain = null; }

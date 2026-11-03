@@ -68,7 +68,7 @@
     if (!q.q) errs.push('חסר טקסט שאלה');
     if (!q.correct) errs.push('חסרה תשובה נכונה');
     const w = (q.wrong || []).filter(Boolean);
-    if (w.length < 3) errs.push(`חסרות ${3 - w.length} תשובות שגויות`);
+    if (w.length < 3) errs.push(3 - w.length === 1 ? 'חסרה תשובה שגויה אחת' : `חסרות ${3 - w.length} תשובות שגויות`);
     const all = [q.correct, ...w].map((s) => s.trim());
     if (new Set(all).size !== all.length) errs.push('יש תשובות כפולות');
     return errs;

@@ -367,3 +367,14 @@ body[data-screen="play"] .bg-horizon { transform: translateY(calc(96px * var(--s
 body[data-screen="result"] .bg-horizon { transform: translateY(calc(30px * var(--s))); }
 
 .q-board.has-timer { padding: 58px 70px 18px; }
+
+/* Classic theme: keep centred content clear of the skyline's tallest finials; stronger dock on the white wall */
+body.theme-classic .sp-center { margin-top: -186px; }
+body.theme-classic #dock { opacity: 0.9; }
+
+/* Low-effects mode (auto-enabled on slow machines): no blur, no rotating rays, calmer particles */
+body.lowfx .rays { animation: none; }
+body.lowfx .glass, body.lowfx .btn-glass, body.lowfx .modal-wrap { backdrop-filter: none; -webkit-backdrop-filter: none; }
+body.lowfx .glass { background: linear-gradient(180deg, rgba(22, 62, 140, 0.92) 0%, rgba(8, 28, 78, 0.95) 100%); }
+body.lowfx .bg-text { display: none; }
+body.lowfx .rs-wreath::before { animation: none; }

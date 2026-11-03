@@ -850,18 +850,25 @@
     };
     const L1 = lattice(6, 7), L2 = lattice(16, 18), L3 = lattice(44, 46);
     for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) n[y * w + x] = 0.5 * sample(L1, x, y) + 0.26 * sample(L2, x, y) + 0.14 * sample(L3, x, y) + 0.1 * Math.random();
+      for (let x = 0; x < w; x++) n[y * w + x] = 0.52 * sample(L1, x, y) + 0.28 * sample(L2, x, y) + 0.15 * sample(L3, x, y) + 0.05 * Math.random();
     }
     const sorted = Float32Array.from(n).sort(), N = n.length;
+    // ember rim: a thin hot contour just inside the crumbling front (cream core, gold halo), drawn additively on the overlay
+    const rc = canvasOf(w, h), rimg = rc.getContext('2d').createImageData(w, h), rd = rimg.data;
     for (let i = 0; i < N; i++) {                                // value → percentile
       let lo = 0, hi = N - 1;
       const v = n[i];
       while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] < v) lo = mid + 1; else hi = mid; }
       n[i] = lo / N;
-      img.data[i * 4 + 3] = clamp((n[i] - edgeF(i % w, w)) * 7 + 0.5, 0, 1) * 255;
+      const d = n[i] - edgeF(i % w, w);
+      img.data[i * 4 + 3] = clamp(d * 7 + 0.5, 0, 1) * 255;
+      const core = Math.exp(-(((d - 0.01) / 0.024) ** 2)), halo = Math.exp(-(((d - 0.02) / 0.07) ** 2)) * 0.5;
+      const a = Math.max(core, halo), k = a > 0 ? core / a : 0;
+      rd[i * 4] = 255; rd[i * 4 + 1] = 168 + 76 * k; rd[i * 4 + 2] = 64 + 140 * k; rd[i * 4 + 3] = a * 255;
     }
     g.putImageData(img, 0, 0);
-    edgeTex = { url: cv.toDataURL('image/png'), w, h, n };
+    rc.getContext('2d').putImageData(rimg, 0, 0);
+    edgeTex = { url: cv.toDataURL('image/png'), w, h, n, rim: rc };
     return edgeTex;
   }
 
@@ -875,7 +882,7 @@
     const D = reduced() ? 400 : Math.max(240, Number(o.duration) || 900);
     const r = stageRect(el);
     const W = el.offsetWidth || r.w, H = el.offsetHeight || r.h;
-    const M = 150, Sz = clamp(W * 0.5, 160, 520), span = W + 2 * M, travel = span + Sz, x0 = -M;
+    const M = 150, Sz = clamp(W * 0.42, 150, 440), span = W + 2 * M, travel = span + Sz, x0 = -M;
     const st = el.style;
     const pfx = 'maskImage' in st ? 'mask' : 'webkitMaskImage' in st ? 'webkitMask' : null;
     const props = ['Image', 'Size', 'Repeat', 'Position', 'Clip', 'Origin'].map((k) => pfx + k);
@@ -900,10 +907,35 @@
       ] : [{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(10px)' }];
       try { anim = el.animate(kf, { duration: D, easing: 'linear', fill: 'forwards' }); } catch (e) { anim = null; }
     }
+    const state = { done: false };
 
     // particles: each grain is released exactly when the crumbling edge clears its pixel
     if (overlay()) {
       const q = quality(), n = Math.round((Number(o.count) || 480) * q), kx = r.w / W, ky = r.h / H, rad = Math.min(28, H / 2);
+      if (pfx && tex.rim) {                                   // glowing ember rim riding the crumbling front
+        let br = 0;
+        try { br = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0; } catch (e) { /* ignore */ }
+        const rr = Math.min(br, W / 2, H / 2), t0 = performance.now();
+        let f = 0;
+        O.ents.push({
+          step() {
+            const ct = anim && anim.currentTime != null ? Number(anim.currentTime) : (O.now || performance.now()) - t0;
+            f = clamp(ct / D, 0, 1);
+            return !state.done && f < 1;
+          },
+          draw(ctx, S, ox, oy) {
+            const L = x0 - travel * f + span;                  // edge layer's left, element px (same as the mask)
+            ctx.save();
+            ctx.setTransform(S, 0, 0, S, ox, oy);
+            ctx.beginPath();
+            if (ctx.roundRect) ctx.roundRect(r.x, r.y, r.w, r.h, rr * kx); else ctx.rect(r.x, r.y, r.w, r.h);
+            ctx.clip();
+            ctx.globalAlpha = 0.95;
+            ctx.drawImage(tex.rim, r.x + L * kx, r.y - M * ky, Sz * kx, (H + 2 * M) * ky);
+            ctx.restore();
+          },
+        });
+      }
       const accents = [...el.querySelectorAll('.letter')].map((c) => { const b = stageRect(c); return { x: b.cx, y: b.cy, r: Math.min(b.w, b.h) / 2 }; });
       const dSec = D / 1000;
       for (let i = 0; i < n; i++) {
@@ -945,7 +977,7 @@
       let done = false;
       const fin = () => {
         if (done) return;
-        done = true;
+        done = true; state.done = true;
         st.visibility = 'hidden';
         if (anim) { try { anim.cancel(); } catch (e) { /* ignore */ } }
         if (pfx) props.forEach((p, i) => { st[p] = saved[i]; });

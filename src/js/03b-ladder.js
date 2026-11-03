@@ -663,6 +663,7 @@
           landed = true; level = to; markRungs(to);
           sage.classList.toggle('on-ground', to <= 0);
           sparkleAt(to);
+          if (up && to >= N) flareStar();          // reaching the top lights the star of the Tanakh
         }
         if (done) { st.x = dst.x; st.y = dst.y; st.sx = st.sy = 1; st.pose = { ...endPose }; st.beard = 0; return true; }
         return false;
