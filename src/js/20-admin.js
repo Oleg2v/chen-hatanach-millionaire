@@ -267,8 +267,13 @@
   // Never let a file dropped anywhere navigate the window away from the game (admin open or not).
   // A question file dropped on the game opens the admin on the import tab and loads it.
   const carriesFiles = (e) => !!(e.dataTransfer && Array.prototype.includes.call(e.dataTransfer.types || [], 'Files'));
+  const editable = (t) => !!(t && (t.isContentEditable || /^(INPUT|TEXTAREA)$/.test(t.tagName)));
   ['dragover', 'drop'].forEach((ev) => window.addEventListener(ev, (e) => {
-    if (!carriesFiles(e)) return;
+    if (!carriesFiles(e)) {
+      // a dragged link dropped on the page would navigate too; text dropped into a field still works
+      if (e.dataTransfer && Array.prototype.includes.call(e.dataTransfer.types || [], 'text/uri-list') && !editable(e.target)) e.preventDefault();
+      return;
+    }
     e.preventDefault();
     if (ev === 'dragover') { try { e.dataTransfer.dropEffect = 'copy'; } catch (x) { /* read-only in some engines */ } return; }
     if (e.__admHandled) return;
@@ -360,9 +365,10 @@
     const input = h('input.a-input', { type: 'text', value: value || '', placeholder, dir: 'rtl', spellcheck: 'false', maxlength: o.max || null });
     const hint = h('div.field-hint', { 'aria-live': 'polite' });
     const paintHint = () => {
-      const n = input.value.trim().length;
-      const msg = o.max && n >= o.max ? `הגעתם לאורך המרבי (${o.max} תווים)` : o.warnAt && n > o.warnAt ? o.warn : '';
-      put(hint, msg ? [ic('info'), h('span', msg), o.max ? h('span.field-count', { dir: 'ltr' }, `${n}/${o.max}`) : null] : []);
+      const n = input.value.length;
+      const warn = o.warnAt && n > o.warnAt, full = o.max && n >= o.max;
+      const msg = warn ? o.warn : full ? `אורך מרבי: ${o.max} תווים` : '';
+      put(hint, msg ? [ic('info'), h('span', msg), warn && o.max ? h('span.field-count', { dir: 'ltr' }, `${n}/${o.max}`) : null] : []);
       hint.hidden = !msg;
     };
     input.addEventListener('input', () => { onInput(input.value); paintHint(); });
@@ -419,8 +425,8 @@
         h('div.rs-item', h('b', nf(s.perParticipant)), h('span', s.perParticipant === 1 ? 'שאלה' : 'שאלות')), h('span.rs-x', '='),
         h('div.rs-item', h('b', nf(need)), h('span', need === 1 ? 'שאלה בסבב' : 'שאלות בסבב')),
         h('div.rs-sep'),
-        h('div.rs-item', { title: custom ? 'לפי הנקודות שנקבעו לשאלות באוסף הפעיל' : 'לפי ברירת המחדל של נקודות לשאלה' },
-          h('b', U.fmtScore(maxPts)), h('span', custom ? 'נקודות לכל היותר בכוורת' : 'נקודות לכל היותר בכוורת (ברירת מחדל)')));
+        h('div.rs-item', { title: custom ? 'לפי הנקודות שנקבעו לשאלות באוסף הפעיל' : `${nf(s.perParticipant)} × ${nf(s.points)} נקודות (ברירת המחדל לשאלה)` },
+          h('b', U.fmtScore(maxPts)), h('span', 'נקודות לכל היותר בכוורת')));
       const go = btn('לעריכת השאלות', { kind: 'link', icon: 'next', onclick: () => { selSetId = a.id; setTab('questions'); } });
       if (ok < s.perParticipant) {
         poolNote.replaceChildren(h('div.callout.warn', ic('warn'), h('div',
@@ -553,9 +559,9 @@
       try { view.innerHTML = CH.art && CH.art[key] ? CH.art[key](key === 'emblem' ? { shaded: true } : {}) : ''; } catch (e) { view.innerHTML = ''; }
       if (!view.innerHTML && cur) view.replaceChildren(h('img', { src: cur, alt: title }));
       if (!view.innerHTML) view.replaceChildren(h('span.bs-empty', ic('image')));
-      badge.textContent = temp ? 'הועלה · עד סגירת החלון' : uploaded ? 'קובץ שהועלה' : embedded ? 'קובץ מקורי' : 'שחזור מובנה';
+      badge.textContent = temp ? 'הועלה · זמני' : uploaded ? 'קובץ שהועלה' : embedded ? 'קובץ מקורי' : 'שחזור מובנה';
       badge.dataset.kind = temp ? 'temp' : uploaded || embedded ? 'file' : 'builtin';
-      badge.title = temp ? 'אין מספיק מקום לשמירה קבועה של הקובץ. אחרי סגירת החלון יוצג השחזור המובנה.' : '';
+      badge.title = temp ? 'הקובץ מוצג עד סגירת החלון: אין מספיק מקום לשמירה קבועה. אחרי סגירת החלון יוצג השחזור המובנה.' : '';
       put(acts,
         btn(uploaded ? 'החלפה' : 'העלאת PNG', { size: 'sm', icon: 'upload', onclick: () => input.click() }),
         uploaded ? btn('הסרה', { size: 'sm', kind: 'ghost-danger', icon: 'trash', onclick: () => { saveBrand(key, null); paint(); toast('הלוגו הוסר — מוצג השחזור המובנה'); } }) : null);
@@ -1223,7 +1229,7 @@
       wb = text ? XLSX.read(decodeText(buf).replace(/^\ufeff/, ''), { type: 'string', raw: true }) : XLSX.read(buf, { type: 'array' });
     } catch (e) {
       console.warn(e);
-      if (/password|encrypt/i.test(String(e && e.message))) throw new Error('הקובץ מוגן בסיסמה. הסירו את הסיסמה ב־Excel, שמרו ונסו שנית.');
+      if (/password/i.test(String(e && e.message))) throw new Error('הקובץ מוגן בסיסמה. הסירו את הסיסמה ב־Excel, שמרו ונסו שנית.');
       throw new Error(text ? 'לא ניתן לקרוא את הקובץ. ודאו שהוא קובץ CSV תקין.' : CORRUPT);
     }
     const sheets = wb.SheetNames.map((n) => ({ name: n, rows: rowsFromAoa(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '', blankrows: false })) }))

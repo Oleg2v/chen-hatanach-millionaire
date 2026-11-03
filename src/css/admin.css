@@ -336,7 +336,7 @@ body.admin-covered #bg, body.admin-covered #viewport, body.admin-covered #fx-can
 #admin .brand-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 #admin .bs { display: grid; gap: 10px; align-content: start; }
 #admin .bs-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; }
-#admin .bs-title { font-size: 13.5px; font-weight: 600; color: var(--a-ink-2); }
+#admin .bs-title { font-size: 13.5px; font-weight: 600; color: var(--a-ink-2); white-space: nowrap; }
 #admin .bs-badge { font-size: 11.5px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--a-bg-2); color: var(--a-ink-3); white-space: nowrap; }
 #admin .bs-badge[data-kind="file"] { background: var(--a-green-050); color: var(--a-green); }
 #admin .bs-badge[data-kind="temp"] { background: var(--a-amber-050); color: var(--a-amber); cursor: help; }
