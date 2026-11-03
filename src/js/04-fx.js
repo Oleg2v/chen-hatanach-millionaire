@@ -21,6 +21,7 @@
   const easeInOut3 = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
   const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   const reduced = () => !!(CH.u && CH.u.reduced);
+  const lowFx = () => !!(document.body && document.body.classList.contains('lowfx'));   // set by 99-main on slow machines
   const shuffle = (a) => (CH.u && CH.u.shuffle ? CH.u.shuffle(a) : a);
   const emblemColors = () => (CH.art && Array.isArray(CH.art.EMBLEM_COLORS) && CH.art.EMBLEM_COLORS.length >= 6 ? CH.art.EMBLEM_COLORS : FALLBACK_COLORS);
 
@@ -89,7 +90,7 @@
     /** thin luminous ring (shockwave) */
     ring(c) {
       const S = 256, cv = canvasOf(S), g = cv.getContext('2d'), m = S / 2;
-      radial(g, m, m, [[0, rgba(c, 0)], [0.58, rgba(c, 0)], [0.8, rgba(c, 0.26)], [0.9, rgba(mixRGB(c, WHITE, 0.55), 0.95)], [0.95, rgba(c, 0.35)], [1, rgba(c, 0)]]);
+      radial(g, m, m, [[0, rgba(c, 0)], [0.5, rgba(c, 0)], [0.8, rgba(c, 0.14)], [0.9, rgba(c, 0.42)], [0.94, rgba(mixRGB(c, WHITE, 0.6), 1)], [0.965, rgba(c, 0.45)], [1, rgba(c, 0)]]);
       return cv;
     },
     /** soft bokeh disc */
@@ -149,7 +150,7 @@
   const B = {
     cv: null, ctx: null, dpr: 1, w: 0, h: 0, unit: 1, dirty: true, raf: 0, last: 0, T: 0,
     cubes: [], motes: [], discs: [], spr: null, artSpr: false,
-    I: 1, It: 1, q: 1, ema: 16.7, cost: 0, slowMs: 0, fastMs: 0,
+    I: 1, It: 1, q: 1, low: false, ema: 16.7, cost: 0, slowMs: 0, fastMs: 0,
     mx: 0, my: 0, tmx: 0, tmy: 0,
   };
   // depth layers: far (small, blurred, pre-saturated so it stays clean when translucent) → near (big, crisp, soft shadow)
@@ -203,7 +204,20 @@
     });
   }
   /** sprites[colour][variant: 0 ornament | 1 letter][level] */
-  const buildSpriteSet = (sources) => sources.map((pair) => pair.map((src) => LEVELS.map((L) => rasterLevel(src, L))));
+  /** Sky-tinted silhouette (same blur, no shadow): high cubes melt into the light instead of going muddy. */
+  function rasterSil(src, L) {
+    const S = Math.ceil(L.px * PAD), cv = canvasOf(S), g = cv.getContext('2d'), o = (S - L.px) / 2;
+    if (L.filter && 'filter' in g) g.filter = L.filter;
+    g.drawImage(src, o, o, L.px, L.px);
+    g.filter = 'none';
+    g.globalCompositeOperation = 'source-in'; g.fillStyle = '#8fd0f6'; g.fillRect(0, 0, S, S);
+    return cv;
+  }
+  const buildSpriteSet = (sources) => {
+    const set = sources.map((pair) => pair.map((src) => LEVELS.map((L) => rasterLevel(src, L))));
+    set.sil = LEVELS.map((L) => rasterSil(sources[0][0], L));   // one silhouette per depth (all cubes share the shape)
+    return set;
+  };
   const fallbackSet = (colors) => buildSpriteSet(colors.map((c) => { const s = fallbackCube(c); return [s, s]; }));
   let spriteJob = null, recheckTimers = [];
   function loadSprites() {
@@ -229,17 +243,24 @@
       .then(() => { spriteJob = null; });
   }
 
+  /** Horizontal lane that keeps the centre column (titles, emblem, question board) clear: nearer cubes stay further out.
+   *  Translucency over navy turns colours muddy, so the centre is kept clean by placement rather than by fading. */
+  function laneX(z, side) {
+    const hw = 0.11 + 0.15 * z;                                         // half-width of the clear column
+    const edge = rand(-0.03, 0.5 - hw);                                 // distance band from the screen edge
+    return side ? 1 - edge : edge;                                      // alternate sides keep the frame balanced
+  }
   function makeCube(i, n, lv, rank, col) {
     const z = (lv + Math.random()) / 3;
     return {
       z, lv, rank, col, letter: Math.random() < 0.34 ? 1 : 0,
       size: lerp(30, 118, Math.pow(z, 1.12)) * rand(0.88, 1.12),          // css px @1080p
       speed: lerp(9, 40, z) * rand(0.85, 1.15),                           // css px/s @1080p
-      x: (((i * 7) % n) + Math.random()) / n, y: rand(-0.05, 1.08) * B.h,
+      side: i % 2, x: 0, y: rand(-0.05, 1.08) * B.h,
       swA: rand(8, 22) * (0.5 + z), swF: rand(0.12, 0.32), ph: rand(0, TAU),
       r0: rand(-0.3, 0.3), rA: rand(0.06, 0.24), rF: rand(0.08, 0.22),
       spin: Math.random() < 0.22 ? rand(-0.22, 0.22) : 0,
-      a: lerp(0.5, 0.95, z), vis: 0,
+      a: lerp(0.74, 1, z), vis: 0,
     };
   }
   function buildScene() {
@@ -247,7 +268,7 @@
     const ranks = shuffle([...Array(n).keys()]);
     const cols = shuffle([...Array(n).keys()].map((i) => i % 6));
     B.cubes = [];
-    for (let i = 0; i < n; i++) B.cubes.push(makeCube(i, n, i < n * 0.44 ? 0 : i < n * 0.78 ? 1 : 2, ranks[i], cols[i]));
+    for (let i = 0; i < n; i++) { const c = makeCube(i, n, i < n * 0.44 ? 0 : i < n * 0.78 ? 1 : 2, ranks[i], cols[i]); c.x = laneX(c.z, c.side); B.cubes.push(c); }
     B.cubes.sort((a, b) => a.z - b.z);
     B.motes = [];
     for (let i = 0; i < 54; i++) {
@@ -265,7 +286,7 @@
     }
   }
   function fitBg() {
-    const dpr = B.q < 0.7 ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
+    const dpr = B.q < 0.7 || B.low ? 1 : Math.min(window.devicePixelRatio || 1, 1.5);
     const w = window.innerWidth, h = window.innerHeight;
     B.dirty = false;
     if (w === B.w && h === B.h && dpr === B.dpr && B.cv.width) return;
@@ -295,9 +316,11 @@
     const dt = clamp(dtms / 1000, 0, 0.05);
     B.T += dt;
     adapt(dtms);
+    const low = lowFx();
+    if (low !== B.low) { B.low = low; B.dirty = true; }
     if (B.dirty) fitBg();
     const kI = 1 - Math.exp(-dt / 0.9), kM = 1 - Math.exp(-dt / 0.6);
-    B.I += (B.It - B.I) * kI;
+    B.I += ((low ? Math.min(B.It, 0.6) : B.It) - B.I) * kI;   // low-effects mode: calm ambience
     B.mx += (B.tmx - B.mx) * kM; B.my += (B.tmy - B.my) * kM;
     const t0 = performance.now();
     drawBg(dt);
@@ -306,13 +329,13 @@
   }
   function drawBg(dt) {
     const ctx = B.ctx, dpr = B.dpr, w = B.w, h = B.h, u = B.unit, T = B.T, I = B.I;
-    // calm mostly by thinning the flock (translucent colour over navy turns muddy), a little by alpha; 0 = off
+    // calm by thinning the flock and slowing it (translucent colour over navy turns muddy), barely by alpha; 0 = off
     const on = smooth(0, 0.22, I);
-    const aMul = (0.55 + 0.45 * Math.min(I, 1)) * on + Math.max(0, I - 1) * 0.4;
+    const aMul = (0.86 + 0.14 * Math.min(I, 1)) * on;
+    const glow = aMul * (0.75 + 0.25 * Math.min(I, 1)) + Math.max(0, I - 1) * 0.6;   // dust / bokeh: boost brightens
     const vMul = (0.45 + 0.55 * I) * (reduced() ? 0.3 : 1);
-    const active = Math.round(B.cubes.length * clamp(0.35 + 0.44 * I, 0, 1) * on * B.q);
+    const active = Math.round(B.cubes.length * clamp(0.3 + 0.48 * I, 0, 1) * on * B.q);
     const kVis = 1 - Math.exp(-dt / 1.2);
-    const cx = w / 2, cy = h * 0.42, rx = w * 0.3, ry = h * 0.3;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, B.cv.width, B.cv.height);
@@ -326,7 +349,7 @@
       const r = d.r * u;
       if (d.y < -r * 2) { d.y = h + r * 2; d.x = Math.random(); }
       const x = d.x * w + Math.sin(T * d.swF + d.ph) * d.swA * u - B.mx * 4 * u;
-      ctx.globalAlpha = d.a * Math.min(aMul, 1.2) * smooth(-r, h * 0.3, d.y);
+      ctx.globalAlpha = d.a * glow * smooth(-r, h * 0.3, d.y);
       ctx.drawImage(d.gold ? gB : bB, x - r, d.y - r, 2 * r, 2 * r);
     }
 
@@ -335,21 +358,20 @@
     for (const c of B.cubes) {
       const s = c.size * u;
       c.y -= c.speed * u * vMul * dt;
-      if (c.y < -s) { c.y = h + s * rand(0.6, 1.6); c.x = Math.random(); c.letter = Math.random() < 0.34 ? 1 : 0; }
+      if (c.y < -s) { c.y = h + s * rand(0.6, 1.6); c.x = laneX(c.z, c.side); c.letter = Math.random() < 0.34 ? 1 : 0; }
       c.vis += ((c.rank < active ? 1 : 0) - c.vis) * kVis;
       if (!B.spr || c.vis < 0.005) continue;
       const X = c.x * w + Math.sin(T * c.swF + c.ph) * c.swA * u - B.mx * (6 + 30 * c.z) * u;
       const Y = c.y - B.my * (3 + 14 * c.z) * u;
-      // calm zone: nearer cubes fade softly while they pass behind the centre (titles / question board)
-      const ex = (X - cx) / rx, ey = (Y - cy) / ry;
-      const calm = 1 - 0.52 * c.z * (1 - smooth(0.25, 1.5, ex * ex + ey * ey));
-      const a = Math.min(1, c.a * aMul) * c.vis * calm * smooth(-s * 0.6, h * 0.24, c.y);
+      const a = Math.min(1, c.a * aMul) * c.vis * smooth(-s * 0.55, h * 0.07, c.y);   // short final exit
+      const haze = 0.72 * (1 - smooth(h * 0.03, h * 0.3, c.y));                       // rising into the sky light
       if (a < 0.004) continue;
       const rot = c.r0 + Math.sin(T * c.rF + c.ph * 1.7) * c.rA + c.spin * T;
       const cr = Math.cos(rot) * dpr, sr = Math.sin(rot) * dpr, d = s * PAD;
       ctx.globalAlpha = a;
       ctx.setTransform(cr, sr, -sr, cr, X * dpr, Y * dpr);
       ctx.drawImage(B.spr[c.col % B.spr.length][c.letter][c.lv], -d / 2, -d / 2, d, d);
+      if (haze > 0.01 && B.spr.sil) { ctx.globalAlpha = a * haze; ctx.drawImage(B.spr.sil[c.lv], -d / 2, -d / 2, d, d); }
     }
 
     // dust motes (additive, twinkling)
@@ -362,7 +384,7 @@
       m.y -= m.speed * u * vMul * dt;
       if (m.y < -r) { m.y = h + r; m.x = Math.random(); }
       const tw = 0.5 + 0.5 * Math.sin(T * m.twF + m.ph);
-      const a = m.a * aMul * (0.2 + 0.8 * tw * tw) * smooth(-r, h * 0.15, m.y);
+      const a = m.a * glow * (0.2 + 0.8 * tw * tw) * smooth(-r, h * 0.15, m.y);
       if (a < 0.004) continue;
       const x = m.x * w + Math.sin(T * m.swF + m.ph) * m.swA * u - B.mx * (4 + 22 * m.z) * u;
       ctx.globalAlpha = Math.min(1, a);
@@ -434,7 +456,7 @@
     return !!O.ctx;
   }
   function fitOverlay() {
-    const dpr = B.q < 0.7 ? 1 : Math.min(window.devicePixelRatio || 1, 2), vw = window.innerWidth, vh = window.innerHeight;
+    const dpr = B.q < 0.7 || lowFx() ? 1 : Math.min(window.devicePixelRatio || 1, 2), vw = window.innerWidth, vh = window.innerHeight;
     if (vw === O.vw && vh === O.vh && dpr === O.dpr) return;
     O.vw = vw; O.vh = vh; O.dpr = dpr;
     O.cv.width = Math.round(vw * dpr); O.cv.height = Math.round(vh * dpr);
@@ -447,7 +469,7 @@
   /** Spawn-count multiplier: reduced motion and slow machines get fewer particles. */
   function quality() {
     const ema = Math.max(B.cv ? B.ema : 0, O.raf ? O.ema : 0);
-    return (reduced() ? 0.45 : 1) * (ema > 28 ? 0.55 : ema > 22 ? 0.75 : 1);
+    return (reduced() ? 0.45 : 1) * (lowFx() ? 0.6 : 1) * (ema > 28 ? 0.55 : ema > 22 ? 0.75 : 1);
   }
 
   function frame(ts) {
@@ -566,16 +588,24 @@
       if (cf < 0 && idx > 0) idx--;           // back side a touch darker
       ctx.fillStyle = p.shades[idx];
       const cr = Math.cos(p.rot), sr = Math.sin(p.rot);
-      if (p.shape === 2) {                    // curly streamer
+      if (p.shape === 2) {                    // curly streamer: a twisted paper ribbon (width + shade follow the twist)
         ctx.setTransform(S * cr, S * sr, -S * sr, S * cr, S * p.x + ox, S * p.y + oy);
-        ctx.strokeStyle = p.shades[clamp(4 + ((Math.sin(p.curl) * 3.5) | 0), 0, 7)];
-        ctx.lineWidth = p.h; ctx.lineCap = 'round';
-        ctx.beginPath();
-        for (let k = 0; k <= 10; k++) {
-          const f = k / 10, x = (f - 0.5) * p.w, y = Math.sin(f * 9.5 + p.curl) * p.amp * (0.4 + f * 0.6);
-          k ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+        const N = 14, tw0 = p.flip;
+        let ax = 0, ay = 0, bx = 0, by = 0;
+        ctx.lineWidth = 0.8; ctx.lineJoin = 'round';   // hairline stroke closes AA seams between quads
+        for (let k = 0; k <= N; k++) {
+          const f = k / N, ph = f * 9.5 + p.curl, env = p.amp * (0.4 + f * 0.6);
+          const x = (f - 0.5) * p.w, y = Math.sin(ph) * env;
+          const dx = p.w / N, dy = Math.cos(ph) * env * 9.5 / N, dl = Math.hypot(dx, dy) || 1;
+          const c = Math.cos(tw0 + f * p.twist), hw = p.h * (0.12 + 0.88 * Math.abs(c));
+          const nx = -dy / dl * hw, ny = dx / dl * hw;
+          if (k) {
+            const m = Math.abs(c);
+            ctx.fillStyle = ctx.strokeStyle = p.shades[c > 0 ? 3 + ((m * 4.99) | 0) : 1 + ((m * 2.99) | 0)];
+            ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(x + nx, y + ny); ctx.lineTo(x - nx, y - ny); ctx.lineTo(bx, by); ctx.closePath(); ctx.fill(); ctx.stroke();
+          }
+          ax = x + nx; ay = y + ny; bx = x - nx; by = y - ny;
         }
-        ctx.stroke();
         continue;
       }
       const sx = cf < 0 ? Math.min(cf, -0.06) : Math.max(cf, 0.06);
@@ -641,11 +671,11 @@
       x, y, vx, vy, age: 0, life, fade: Math.min(0.8, life * 0.25), maxY: stageBounds().bottom + 40,
       rot: rand(0, TAU), vr: rand(-5, 5), flip: rand(0, TAU), vf: rand(5, 12) * (Math.random() < 0.5 ? -1 : 1),
       drag: rand(2.5, 3.5), wob: rand(25, 80), wobF: rand(2, 5), ph: rand(0, TAU), lift: rand(140, 340), windK: rand(0.6, 1.4),
-      shape, shades: shadesOf(col, metal), w: 0, h: 0, curl: rand(0, TAU), vc: 0, amp: 0,
+      shape, shades: shadesOf(col, metal), w: 0, h: 0, curl: rand(0, TAU), vc: 0, amp: 0, twist: 0,
     };
     if (shape === 0) { p.w = rand(6.4, 8.6); p.h = p.w * 1.732; }             // half-diagonals of a 60° rhombus
     else if (shape === 1) { p.w = rand(6.5, 9.5); p.h = rand(3.6, 5.2); }      // half-sizes
-    else { p.w = rand(44, 70); p.h = rand(3.8, 5); p.amp = rand(5, 8); p.vc = rand(4, 8); p.drag *= 1.3; p.vr *= 0.5; p.vf = 0; p.lift = 0; }
+    else { p.w = rand(48, 76); p.h = rand(3.2, 4.2); p.amp = rand(5, 8.5); p.vc = rand(4, 8); p.twist = rand(5, 9); p.drag *= 1.3; p.vr *= 0.5; p.vf = rand(3, 6); p.lift = 0; }
     O.pieces.push(p);
     return p;
   }
@@ -773,7 +803,8 @@
     return { x: u * u * p0.x + 2 * u * t * c.x + t * t * p1.x, y: u * u * p0.y + 2 * u * t * c.y + t * t * p1.y };
   }
 
-  /** Comet of gold sparkles along trailControl's curve; the head follows ease-in-out-cubic (same timing as the "+N" label). */
+  /** Comet of gold sparkles along trailControl's curve; the head follows ease-in-out-cubic (same timing as the "+N" label)
+   *  and trails the label's centre by `lag` stage px (default 58) so the digits stay readable; it lands exactly on `to`. */
   function trail(from, to, opts = {}) {
     const o = Object.assign({ duration: 800, color: GOLD, ease: easeInOut3 }, opts);
     const dur = Math.max(0.05, (Number(o.duration) || 800) / 1000);
@@ -786,16 +817,28 @@
       const c = o.control || trailControl(from, to), col = o.color || GOLD;
       const glow = sprite('glow', col), hot = sprite('glow', '#fff4d6'), glint = sprite('glint', col), dot = sprite('dot', col);
       const TAIL = 0.24, M = 34, rate = 300 * quality();
+      const LAG = Number.isFinite(Number(o.lag)) ? Math.max(0, Number(o.lag)) : 58;
       const pos = (tt) => bezierPoint(from, c, to, ease(clamp(tt, 0, 1)));
+      /** Head's curve time: it trails the "+N" label's centre by ~LAG px (so the digits stay readable),
+       *  closing the gap over the last stretch so it lands exactly on `to` at t = 1. */
+      const headT = (t) => {
+        const want = LAG * (1 - smooth(0.8, 1, t));
+        if (want < 0.5 || t <= 0) return t;
+        const p = pos(t), w2 = want * want;
+        let tt = t;
+        for (let k = 0; k < 48 && tt > 0; k++) { tt -= 0.004; const q = pos(tt); if ((q.x - p.x) ** 2 + (q.y - p.y) ** 2 >= w2) break; }
+        return Math.max(0, tt);
+      };
       const t0 = performance.now();               // wall-clock, so the head stays glued to the WAAPI label on slow machines
-      let age = 0, acc = 0, prev = pos(0);
+      let age = 0, acc = 0, ht = 0, prev = pos(0);
       O.ents.push({
         resolve: finish,
         step(dt) {
           age = Math.max(0, ((O.now || performance.now()) - t0) / 1000);
           const t = age / dur;
           if (t <= 1) {
-            const h = pos(t), k = 1 / (dt || 1 / 60), vx = (h.x - prev.x) * k, vy = (h.y - prev.y) * k;
+            ht = headT(t);
+            const h = pos(ht), k = 1 / (dt || 1 / 60), vx = (h.x - prev.x) * k, vy = (h.y - prev.y) * k;
             acc += rate * dt;
             while (acc >= 1) {
               acc -= 1;
@@ -805,21 +848,21 @@
               else addSpark(dot, x, y, svx, svy, rand(0.35, 0.8), rand(7, 13), { drag: 2.2, ay: 180, tw: rand(14, 30), s1: 2 });
             }
             prev = h;
-          } else finish();
+          } else { ht = t; finish(); }
           return t < 1 + TAIL / dur + 0.02;
         },
         draw(ctx, S, ox, oy) {
           const t = age / dur;
           ctx.setTransform(S, 0, 0, S, ox, oy);
           for (let j = M; j >= 1; j--) {           // tail: earlier positions, tapering
-            const tt = t - (j / M) * (TAIL / dur);
+            const tt = ht - (j / M) * (TAIL / dur);
             if (tt < 0 || tt > 1) continue;
             const p = pos(tt), f = 1 - j / M, z = 12 + 58 * Math.pow(f, 1.2);
             ctx.globalAlpha = 0.62 * Math.pow(f, 1.3);
             ctx.drawImage(glow, p.x - z / 2, p.y - z / 2, z, z);
           }
           if (t > 1) return;
-          const h = pos(t), pulse = 1 + 0.08 * Math.sin(age * 40);
+          const h = pos(ht), pulse = 1 + 0.08 * Math.sin(age * 40);
           let z = 92 * pulse;
           ctx.globalAlpha = 0.85; ctx.drawImage(glow, h.x - z / 2, h.y - z / 2, z, z);
           z = 34; ctx.globalAlpha = 1; ctx.drawImage(hot, h.x - z / 2, h.y - z / 2, z, z);
@@ -877,8 +920,8 @@
     return edgeTex;
   }
 
-  /** 50:50 — the element crumbles right→left into glowing dust and glass flakes, blown by a gentle wind.
-   *  Resolves when gone (~900ms) and leaves the element with visibility:hidden. */
+  /** 50:50 — the element crumbles right→left into glowing dust and glass flakes, blown by a gentle wind; a hot ember
+   *  rim rides the crumbling front. Resolves when gone (~900ms) and leaves the element with visibility:hidden. */
   function dissolve(el, opts = {}) {
     if (!el || !el.isConnected) return Promise.resolve();
     const o = Object.assign({ colors: DUST, flakes: GLASS_FLAKES, duration: 900, count: 480 }, opts);

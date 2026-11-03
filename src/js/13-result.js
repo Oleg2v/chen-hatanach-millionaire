@@ -84,7 +84,7 @@
       CH.fx && CH.fx.setBackgroundIntensity && CH.fx.setBackgroundIntensity(1.2);
       choreo();
     },
-    leave() { if (ctx) { ctx.ladder && safe(() => ctx.ladder.destroy()); } ctx = null; CH.fx && CH.fx.clear && CH.fx.clear(); },
+    leave() { if (ctx) { ctx.ladder && safe(() => ctx.ladder.destroy()); } ctx = null; CH.fx && CH.fx.clear && CH.fx.clear(); CH.sound && CH.sound.stopAll && CH.sound.stopAll(); },
     onKey(e) {
       if (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Escape') { e.preventDefault(); back(); }
     },

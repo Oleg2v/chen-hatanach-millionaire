@@ -646,7 +646,7 @@
           st.sy = 1 - 0.1 * e; st.sx = 1 + 0.07 * e;
           return false;
         }
-        if (!launched) { launched = true; CH.sound && CH.sound.play && CH.sound.play('climb'); }
+        if (!launched) { launched = true; CH.sound && CH.sound.play && CH.sound.play('climb', { step: Math.max(0, Math.min(9, to - 1)) }); }
         for (let h = dt / 6, i = 0; i < 6; i++) { v += (-(p - 1) * K - v * C) * h; p += v * h; }
         const q = clamp(p, 0, 1);
         st.x = lerp(from.x, dst.x, p) + Math.sin(q * Math.PI) * (up ? 16 : 6);

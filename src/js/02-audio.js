@@ -3,10 +3,12 @@
  * Every sound is a function (ctx, d, t0, opts) that schedules nodes into d = { out, fx } (dry bus + reverb send),
  * so it renders identically on a live AudioContext and on an OfflineAudioContext (CH.sound.render, for tests).
  * Master: dry+reverb → HPF 35 Hz → DynamicsCompressor → trim → soft ceiling (WaveShaper, max ≈ −1.2 dBFS) → mute.
- * 60 fps: the room/noise and START are prepared in idle time before the first gesture; after unlock the bigger sounds
- * are baked offline into stems, so play() costs well under 1 ms of main thread at the big moments.
+ * 60 fps: the room/noise and START are prepared in idle time before the first gesture; after unlock the live context's
+ * oscillator tables are warmed and the bigger sounds are baked offline into stems, so play() costs ~1 ms of main thread.
  * Musical frame: the whole game lives in D major (pentatonic D E F♯ A B). "lock" hangs on A (the dominant), so
  * "correct" lands home on D and "wrong" sinks to D minor.
+ * Mixed for the real room: a projector speaker plays little below ~180 Hz, so every important low sound (heartbeat,
+ * "wrong", fanfare) also carries its identity in the 200 Hz–1 kHz band (see dev/audio-polish/projector.mjs).
  */
 (function (CH) {
   'use strict';
@@ -633,6 +635,7 @@
     unlock().then((ok) => {
       if (!ok) return;
       GESTURES.forEach((ev) => window.removeEventListener(ev, onGesture, true));
+      warmLive();
       bakeAll();
     });
   }
@@ -659,7 +662,21 @@
     if (!AC || !OAC) return;
     const tasks = [];
     for (const sr of [48000, 44100]) tasks.push(() => impulse(null, sr), () => noiseBuffer(null, sr), () => (muted ? null : bakeInto('start', sr)));
-    setTimeout(() => idleQueue(tasks), 2500);   // after the splash intro
+    setTimeout(() => idleQueue(tasks), 2800);   // after the splash intro (its last fade ends at ≈ 2.7 s)
+  }
+
+  /** Right after unlock, in idle time: Chromium builds each oscillator type's band-limited wavetable per context on
+   *  first use (1.5–10 ms of main thread, measured), and the answer plucks are Karplus–Strong buffers computed in JS.
+   *  Doing both now keeps the first live click / hover / back / answer at ~1 ms. */
+  let liveWarmed = false;
+  function warmLive() {
+    if (liveWarmed || !ctx) return;
+    liveWarmed = true;
+    const c = ctx, sr = c.sampleRate;
+    idleQueue([
+      () => { for (const type of ['sine', 'triangle', 'square', 'sawtooth']) c.createOscillator().type = type; },
+      () => { for (let i = 0; i < 4; i++) ksBuffer(null, mtof(penta(i + 5, 62)), 0.5, 0.24, 0.55, sr); },   // = sAnswer
+    ]);
   }
 
   /** After unlock: pre-render heavy sounds into 4-channel stems (dry L/R + reverb-send L/R). They still go through the
