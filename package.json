@@ -1,0 +1,11 @@
+{
+  "name": "chen-hatanach-millionaire",
+  "version": "0.9.0",
+  "private": true,
+  "description": "כוכב התנ״ך — demo remake of the Chen HaTanach quiz game as one offline HTML file",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node build.mjs && node tests/e2e.mjs"
+  }
+}

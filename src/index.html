@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; media-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="dark light">
+<title>כוכב התנ״ך · חן התנ״ך</title>
+<style>/*@FONTS@*/</style>
+<style>/*@CSS@*/</style>
+</head>
+<body class="booting">
+  <!-- Full-window background (fills letterbox areas too) -->
+  <div id="bg" aria-hidden="true">
+    <div class="bg-grad"></div>
+    <div class="bg-rays"><div class="rays rays-a"></div><div class="rays rays-b"></div></div>
+    <div class="bg-text"></div>
+    <canvas id="bg-canvas"></canvas>
+    <div class="bg-skyline"><div class="sky-back"></div><div class="sky-front"></div></div>
+    <div class="bg-vignette"></div>
+  </div>
+
+  <!-- 1920×1080 stage, scaled to fit with 16:9 letterbox -->
+  <div id="viewport">
+    <main id="stage" aria-live="polite">
+      <section class="screen" id="scr-splash" data-screen="splash"></section>
+      <section class="screen" id="scr-board" data-screen="board"></section>
+      <section class="screen" id="scr-play" data-screen="play"></section>
+      <section class="screen" id="scr-result" data-screen="result"></section>
+      <nav id="dock" aria-label="כלים"></nav>
+      <div id="layer-modal"></div>
+      <div id="layer-toast"></div>
+    </main>
+  </div>
+
+  <!-- Particles (confetti, sparkles, dissolve) above everything in the game -->
+  <canvas id="fx-canvas" aria-hidden="true"></canvas>
+
+  <!-- Admin / CMS (light, responsive, not scaled) -->
+  <div id="admin" hidden></div>
+
+  <div id="curtain" aria-hidden="true"></div>
+<!--@SCRIPTS@-->
+</body>
+</html>
