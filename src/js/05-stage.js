@@ -31,11 +31,17 @@
   }
 
   // ---- fullscreen ----
-  const isFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+  const apiFullscreen = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+  /** API fullscreen, or F11/kiosk (window covers the whole screen). */
+  const isFullscreen = () => apiFullscreen() || (() => { try { return matchMedia('(display-mode: fullscreen)').matches || (innerWidth >= screen.width && innerHeight >= screen.height); } catch (e) { return false; } })();
   async function toggleFullscreen() {
     try {
-      if (isFullscreen()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-      else await (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen).call(document.documentElement);
+      if (apiFullscreen()) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else {
+        await (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen).call(document.documentElement);
+        // Keep Esc for the game ("back"); holding Esc still leaves fullscreen.
+        try { navigator.keyboard && navigator.keyboard.lock && (await navigator.keyboard.lock(['Escape'])); } catch (e) { /* not supported */ }
+      }
     } catch (e) { /* not allowed (e.g. iframe) — ignore */ }
   }
 
@@ -47,7 +53,11 @@
     if (isFullscreen()) idleTimer = setTimeout(() => document.body.classList.add('hide-cursor'), 2500);
   }
   ['mousemove', 'mousedown', 'wheel', 'touchstart'].forEach((ev) => window.addEventListener(ev, poke, { passive: true }));
-  document.addEventListener('fullscreenchange', () => { poke(); CH.u.bus.emit('fullscreen', isFullscreen()); });
+  document.addEventListener('fullscreenchange', () => {
+    if (!apiFullscreen()) { try { navigator.keyboard && navigator.keyboard.unlock && navigator.keyboard.unlock(); } catch (e) { /* ignore */ } }
+    poke(); CH.u.bus.emit('fullscreen', isFullscreen());
+  });
+  window.addEventListener('resize', () => { poke(); CH.u.bus.emit('fullscreen', isFullscreen()); });
 
   CH.stage = {
     W, H, el: stageEl,

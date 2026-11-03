@@ -42,8 +42,8 @@
     // question + answers
     refs.qTag = h('div.q-tag', `שאלה ${st.idx + 1}`);
     refs.qText = h('p.q-text.heb', { lang: 'he' });
-    refs.timer = h('div.q-timer', { hidden: !settings().answerTime, html: `<svg viewBox="0 0 100 100"><defs><linearGradient id="tmG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#f6c64e"/><stop offset="1" stop-color="#c4801c"/></linearGradient></defs><circle class="trk" cx="50" cy="50" r="44"/><circle class="arc" cx="50" cy="50" r="44" pathLength="100"/></svg><b>${settings().answerTime}</b>` });
-    refs.qBoard = h('div.q-board.glass.empty', h('div.orn.top', { html: ORN }), refs.qTag, refs.timer, refs.qText, h('div.orn.bot', { html: ORN }));
+    refs.timer = h('div.q-timer', { hidden: true, html: `<svg viewBox="0 0 100 100"><defs><linearGradient id="tmG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#f6c64e"/><stop offset="1" stop-color="#c4801c"/></linearGradient></defs><circle class="trk" cx="50" cy="50" r="44"/><circle class="arc" cx="50" cy="50" r="44" pathLength="100"/></svg><b>${settings().answerTime}</b>` });
+    refs.qBoard = h('div.q-board.glass.empty', h('div.orn.top', { html: ORN }), refs.timer, refs.qText, h('div.orn.bot', { html: ORN }));
     refs.source = h('div.q-source', { html: CH.ui.icons.book + '<span></span>' });
     refs.half = h('div.q-half', '');
     refs.ans = []; refs.slots = [];
@@ -109,7 +109,7 @@
     st.phase = 'showing';
     snd('click');
     const r = CH.stage.rectOf(refs.playBtn);
-    fxOn('burst') && CH.fx.burst(r.cx, r.cy, { kind: 'ring', count: 30 });
+    fxOn('burst') && CH.fx.burst(r.cx, r.cy, { kind: 'stars', count: 18 });
     await animate(refs.cta, [{ opacity: 1, transform: 'scale(1)', filter: 'blur(0)' }, { opacity: 0, transform: 'scale(.86)', filter: 'blur(10px)' }], { duration: 380, easing: 'cubic-bezier(.55,0,.75,.3)' });
     refs.cta.hidden = true;
     await showQuestion();
@@ -122,9 +122,9 @@
     st.order = shuffle([{ text: q.correct, correct: true }, ...q.wrong.map((w) => ({ text: w, correct: false }))]);
     st.removed = new Set(); st.used5050 = false;
     updateProgress();
-    refs.qTag.textContent = `שאלה ${st.idx + 1}`;
     refs.qBoard.classList.remove('empty');
-    refs.half.style.opacity = 0; refs.half.classList.remove('is-timeout'); refs.source.style.opacity = 0;
+    [refs.source, refs.half].forEach((x) => { x.getAnimations().forEach((a) => a.cancel()); x.hidden = true; x.style.opacity = 0; });
+    refs.half.classList.remove('is-timeout');
     refs.timer.classList.remove('warn', 'out'); refs.timer.style.setProperty('--p', 100); refs.timer.querySelector('b').textContent = settings().answerTime;
     refs.next.hidden = true;
     refs.fifty.disabled = true; refs.fifty.classList.remove('used');
@@ -140,11 +140,11 @@
     }
     words.forEach((w) => (w.style.opacity = 0));
     snd('question');
-    animate(refs.qTag, [{ opacity: 0, transform: 'translateY(10px) scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(.34,1.56,.64,1)' });
     const per = Math.max(55, Math.min(110, 900 / words.length));
+    const lowfx = document.body.classList.contains('lowfx');
     await Promise.all(words.map((w, i) => animate(w, [
-      { opacity: 0, transform: 'translateY(26px)', filter: 'blur(10px)' },
-      { opacity: 1, transform: 'none', filter: 'blur(0)' },
+      { opacity: 0, transform: 'translateY(26px)', ...(lowfx ? {} : { filter: 'blur(10px)' }) },
+      { opacity: 1, transform: 'none', ...(lowfx ? {} : { filter: 'blur(0)' }) },
     ], { duration: 620, delay: i * per, easing: 'cubic-bezier(.16,1,.3,1)' })));
     if (st !== my) return;
 
@@ -167,8 +167,8 @@
     await Promise.all(refs.ans.map((b, i) => sleep(i * 150).then(() => {
       snd('answer', { index: i });
       return animate(b, [
-        { opacity: 0, transform: 'translateY(24px) scale(.94)', filter: 'blur(8px)' },
-        { opacity: 1, transform: 'none', filter: 'blur(0)' },
+        { opacity: 0, transform: 'translateY(24px) scale(.94)', ...(lowfx ? {} : { filter: 'blur(8px)' }) },
+        { opacity: 1, transform: 'none', ...(lowfx ? {} : { filter: 'blur(0)' }) },
       ], { duration: 560, easing: 'cubic-bezier(.16,1,.3,1)' }).then((an) => { b.style.opacity = ''; an && an.cancel && an.cancel(); });
     })));
     if (st !== my) return;
@@ -182,6 +182,7 @@
   const tm = { total: 0, left: 0, last: 0, raf: 0, running: false, sec: -1 };
   function startTimer() {
     const T = settings().answerTime;
+    refs.timer.getAnimations().forEach((a) => a.cancel());
     refs.timer.hidden = !T;
     refs.timer.classList.remove('warn', 'out');
     if (!T) return;
@@ -215,6 +216,7 @@
     snd('wrong');
     refs.half.innerHTML = 'הזמן נגמר';
     refs.half.classList.add('is-timeout');
+    refs.half.hidden = false;
     animate(refs.half, [{ opacity: 0, transform: 'scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(.34,1.56,.64,1)' });
     const my = st;
     await sleep(700);
@@ -276,6 +278,7 @@
   /** Shared tail after a reveal: save, progress, source line, NEXT button. */
   async function afterReveal(ok, pts, chosen, climbs) {
     const c = st.cur;
+    if (!refs.timer.hidden) animate(refs.timer, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.8)' }], { duration: 400, delay: 600 }).then(() => { refs.timer.hidden = true; refs.timer.getAnimations().forEach((a) => a.cancel()); });
     c.log[st.idx] = { qid: st.qs[st.idx].id, ok, pts, used5050: st.used5050, chosen, timeout: chosen == null };
     if (st.used5050) c.used5050 = (c.used5050 || 0) + 1;
     CH.store.saveCurrent({ idx: st.idx + 1, score: c.score, correct: c.correct, used5050: c.used5050, log: c.log });
@@ -288,6 +291,7 @@
     const src = st.qs[st.idx].source;
     if (src) {
       refs.source.querySelector('span').textContent = src;
+      refs.source.hidden = false;
       snd('reveal');
       animate(refs.source, [{ opacity: 0, transform: 'translateY(-14px)', filter: 'blur(8px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 700, easing: 'cubic-bezier(.16,1,.3,1)' });
     }
@@ -344,6 +348,7 @@
     if (s.halveOn5050) {
       refs.half.classList.remove('is-timeout');
       refs.half.innerHTML = `50:50 · השאלה שווה <b>${fmtScore(CH.store.pointsOf(st.qs[st.idx]) / 2)}</b> נק׳`;
+      refs.half.hidden = false;
       animate(refs.half, [{ opacity: 0, transform: 'scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 500, delay: 400, easing: 'cubic-bezier(.34,1.56,.64,1)' });
     }
     await Promise.all(gone.map((j, k) => sleep(k * 220).then(() => (fxOn('dissolve')
@@ -408,11 +413,10 @@
         return;
       }
       build();
+      if (st.ladder && st.ladder.el) animate(st.ladder.el, [{ opacity: 0, transform: 'translateX(60px)' }, { opacity: 1, transform: 'none' }], { duration: 800, delay: 150, easing: 'cubic-bezier(.16,1,.3,1)' });
       CH.fx && CH.fx.setBackgroundIntensity && CH.fx.setBackgroundIntensity(0.5);
     },
-    afterEnter() {
-      if (st && st.ladder && st.ladder.el) animate(st.ladder.el, [{ opacity: 0, transform: 'translateX(60px)' }, { opacity: 1, transform: 'none' }], { duration: 900, easing: 'cubic-bezier(.16,1,.3,1)' });
-    },
+    afterEnter() {},
     leave() { pauseTimer(); if (st && st.ladder) { try { st.ladder.destroy(); } catch (e) { /* ignore */ } } st = null; CH.sound && CH.sound.stopAll && CH.sound.stopAll(); },
     onKey(e) {
       if (!st) return;

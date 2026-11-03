@@ -68,26 +68,33 @@
     busy = busy.then(async () => {
       const from = current ? screens[current] : null, to = screens[name];
       if (!to) return;
+      const low = document.body.classList.contains('lowfx');
+      const blur = (px) => (low ? {} : { filter: `blur(${px}px)` });   // full-screen blur is skipped on slow machines
+      let outDone = Promise.resolve();
       if (from && from !== to) {
         CH.sound && CH.sound.play('whoosh');
         const out = from.el.animate([
-          { opacity: 1, transform: 'scale(1)', filter: 'blur(0px)' },
-          { opacity: 0, transform: 'scale(1.07)', filter: 'blur(16px)' },
-        ], { duration: params.fast ? 260 : 460, easing: 'cubic-bezier(.55,0,.75,.3)', fill: 'forwards' });
-        await out.finished.catch(() => {});
-        from.el.classList.remove('is-active');
-        out.cancel();
-        try { from.leave && from.leave(); } catch (e) { console.error(e); }
+          { opacity: 1, transform: 'scale(1)', ...blur(0) },
+          { opacity: 0, transform: 'scale(1.06)', ...blur(14) },
+        ], { duration: params.fast ? 240 : 360, easing: 'cubic-bezier(.55,0,.75,.3)', fill: 'forwards' });
+        outDone = out.finished.catch(() => {}).then(() => {
+          from.el.classList.remove('is-active'); out.cancel();
+          try { from.leave && from.leave(); } catch (e) { console.error(e); }
+        });
+        await sleep(params.fast ? 120 : 180);       // the two halves overlap: no dead air for the host
+        from.el.style.pointerEvents = 'none';
       }
       current = name;
       document.body.dataset.screen = name;
       try { to.enter && (await to.enter(params)); } catch (e) { console.error(e); }
+      to.el.style.pointerEvents = '';
       to.el.classList.add('is-active');
       const inn = to.el.animate([
-        { opacity: 0, transform: 'scale(0.94)', filter: 'blur(16px)' },
-        { opacity: 1, transform: 'scale(1)', filter: 'blur(0px)' },
-      ], { duration: from ? 640 : 900, easing: 'cubic-bezier(.16,1,.3,1)' });
-      await inn.finished.catch(() => {});
+        { opacity: 0, transform: 'scale(0.95)', ...blur(14) },
+        { opacity: 1, transform: 'scale(1)', ...blur(0) },
+      ], { duration: from ? 520 : 900, easing: 'cubic-bezier(.16,1,.3,1)' });
+      await Promise.all([inn.finished.catch(() => {}), outDone]);
+      if (from) from.el.style.pointerEvents = '';
       try { to.afterEnter && to.afterEnter(params); } catch (e) { console.error(e); }
       bus.emit('screen', name);
     }).catch((e) => console.error(e)).then(() => { if (heading === name) heading = null; });
@@ -164,7 +171,7 @@
   function showHelp() {
     const rows = [
       ['רווח / Enter', 'התחל · שחק · המשך'], ['1 – 4', 'בחירת תשובה א׳–ד׳'], ['H', 'גלגל הצלה 50:50'],
-      ['Esc', 'חזרה'], ['F', 'מסך מלא'], ['M', 'השתקה / הפעלת צליל'], ['?', 'עזרה זו'],
+      ['Esc', 'חזרה'], ['F', 'מסך מלא (יציאה: Esc ארוך)'], ['M', 'השתקה / הפעלת צליל'], ['?', 'עזרה זו'],
     ];
     const grid = h('div.keys-grid', rows.flatMap(([k, v]) => [h('div', h('kbd', k)), h('div', v)]));
     return modal({ title: 'קיצורי מקלדת למנחה', body: grid, theme: 'dark', actions: [{ key: 'ok', label: 'הבנתי', kind: 'gold' }] });

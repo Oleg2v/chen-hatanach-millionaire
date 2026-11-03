@@ -93,7 +93,8 @@ svg { display: block; }
     radial-gradient(ellipse 70% 55% at 50% 18%, rgba(127, 211, 255, 0.55) 0%, rgba(127, 211, 255, 0) 70%),
     radial-gradient(ellipse 120% 80% at 50% 0%, #2fa8ec 0%, #1279cf 30%, #0b3a8c 58%, #061a4c 82%, #030b26 100%);
 }
-.bg-rays { position: absolute; inset: 0; mix-blend-mode: screen; opacity: 0.55; }
+.bg-rays { position: absolute; inset: 0; opacity: 0.5; }
+.rays-b { display: none; }   /* one rotating layer: same look, half the compositing cost */
 .rays {
   position: absolute; left: 50%; top: 10%;
   width: 136vmax; height: 136vmax; margin: -68vmax 0 0 -68vmax;
@@ -125,7 +126,7 @@ svg { display: block; }
 }
 #bg-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
 
-.bg-skyline { position: absolute; left: 0; right: 0; bottom: 0; height: calc(250px * var(--s)); }
+.bg-skyline { position: absolute; left: 0; right: 0; bottom: 0; height: max(calc(250px * var(--s)), calc(var(--vw) / 11)); }
 .bg-skyline > div { position: absolute; inset: 0; }
 .bg-skyline svg { position: absolute; bottom: 0; left: 50%; height: 100%; width: auto; transform: translateX(-50%); }
 .sky-back { opacity: 0.32; transform: translateY(calc(-34px * var(--s))) scale(1.02); filter: blur(0.6px); }
@@ -178,8 +179,8 @@ body.booting #curtain { opacity: 1; pointer-events: auto; }
   background: var(--glass-bg);
   border-radius: 28px;
   box-shadow: var(--glass-shadow), var(--glass-inner);
-  backdrop-filter: blur(14px) saturate(1.25);
-  -webkit-backdrop-filter: blur(14px) saturate(1.25);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .glass::before {               /* gold hairline */
   content: ''; position: absolute; inset: 0; border-radius: inherit; padding: 2px;
@@ -253,7 +254,8 @@ body.booting #curtain { opacity: 1; pointer-events: auto; }
 body.in-admin #dock { display: none; }
 
 /* ---------------- Modals (game = dark glass, admin = light) ---------------- */
-#layer-modal { position: absolute; inset: 0; z-index: 60; pointer-events: none; }
+#layer-modal { position: fixed; inset: 0; z-index: 60; pointer-events: none; }
+.modal-wrap:not(.light) .modal { zoom: var(--s); }
 .modal-wrap {
   position: absolute; inset: 0; display: grid; place-items: center; pointer-events: auto;
   background: rgba(2, 8, 30, 0.55);
@@ -319,7 +321,7 @@ body.in-admin #dock { display: none; }
 
 /* Keyboard help sheet */
 .keys-grid { display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; text-align: right; margin: 10px auto 0; width: max-content; font-size: 30px; }
-.keys-grid kbd {
+.keys-grid kbd { direction: ltr; unicode-bidi: isolate;
   display: inline-block; min-width: 64px; padding: 6px 16px; border-radius: 12px; text-align: center;
   font: 600 26px var(--f-ui); color: #3a2303; background: var(--gold-grad);
   box-shadow: 0 4px 0 #8f5c12, 0 6px 14px rgba(0, 0, 0, 0.35);
@@ -332,7 +334,7 @@ body.in-admin #dock { display: none; }
 
 /* Phone in portrait: suggest rotating (the game is a 16:9 projector experience) */
 #rotate-hint { display: none; }
-@media (orientation: portrait) and (max-width: 900px) {
+@media (orientation: portrait) and (max-width: 900px) and (pointer: coarse) {
   body:not(.rh-dismissed):not(.in-admin) #rotate-hint {
     display: grid; place-items: center; position: fixed; inset: 0; z-index: 900; padding: 24px;
     background: radial-gradient(ellipse at 50% 30%, rgba(18, 121, 207, 0.92), rgba(3, 11, 38, 0.97) 75%);

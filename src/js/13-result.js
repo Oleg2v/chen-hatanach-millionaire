@@ -56,8 +56,9 @@
     const r = CH.stage.rectOf(my.val);
     if (CH.fx && CH.fx.confetti) {
       const big = res.correct * 2 >= res.total && res.score > 0;
-      CH.fx.confetti({ x: r.cx - 260, y: r.cy + 40, count: big ? 170 : 90, angle: -70, spread: 55, power: 1.15 });
-      CH.fx.confetti({ x: r.cx + 260, y: r.cy + 40, count: big ? 170 : 90, angle: -110, spread: 55, power: 1.15 });
+      // cannons from beside the wreath, aimed outward so the score stays readable
+      CH.fx.confetti({ x: r.cx - 420, y: r.cy + 180, count: big ? 170 : 90, angle: -120, spread: 50, power: 1.15 });
+      CH.fx.confetti({ x: r.cx + 420, y: r.cy + 180, count: big ? 170 : 90, angle: -60, spread: 50, power: 1.15 });
       if (big) setTimeout(() => my === ctx && CH.fx.confetti({ rain: true, duration: 3200, count: 220 }), 450);
     }
     CH.fx && CH.fx.burst && CH.fx.burst(r.cx, r.cy, { kind: 'ring', count: 40 });

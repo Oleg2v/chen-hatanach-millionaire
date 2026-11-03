@@ -30,13 +30,15 @@
       <section class="screen" id="scr-play" data-screen="play"></section>
       <section class="screen" id="scr-result" data-screen="result"></section>
       <nav id="dock" aria-label="כלים"></nav>
-      <div id="layer-modal"></div>
       <div id="layer-toast"></div>
     </main>
   </div>
 
   <!-- Particles (confetti, sparkles, dissolve) above everything in the game -->
   <canvas id="fx-canvas" aria-hidden="true"></canvas>
+
+  <!-- In-game dialogs: full window (covers the letterbox too); the box itself is scaled with the stage -->
+  <div id="layer-modal"></div>
 
   <!-- Admin / CMS (light, responsive, not scaled) -->
   <div id="admin" hidden></div>

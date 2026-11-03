@@ -10,18 +10,38 @@
   const AREA = { w: 1290, h: 730, gap: 24 };
   let tiles = [], focusN = 0, digitBuf = '', digitTimer = 0, flashN = 0;
 
-  /** Columns: smallest count ≥ ceil(√n) that leaves the fewest empty cells (16→4×4, 24→6×4, 10→5×2). */
+  /** Honeycomb layout: pointy-top hexagons in offset rows. Picks the column count that gives the largest cells
+   *  (ties → fewer empty cells). Returns cell width w, height hh, and each cell's position (RTL: first cell top-right). */
+  const HEX = 2 / Math.sqrt(3), GX = 14, GY = 10;
   function layout(n) {
-    const base = Math.ceil(Math.sqrt(n));
-    let best = { cols: base, rows: Math.ceil(n / base), empty: Infinity };
-    for (let c = base; c <= base + 3 && c <= n; c++) {
+    let best = null;
+    for (let c = Math.max(1, Math.ceil(Math.sqrt(n)) - 1); c <= Math.min(n, 12); c++) {
       const r = Math.ceil(n / c), e = r * c - n;
-      if (e < best.empty) best = { cols: c, rows: r, empty: e };
+      if (e >= c) continue;
+      const half = r > 1 ? 0.5 : 0;
+      const wByW = (AREA.w - (c - 1) * GX - half * GX) / (c + half);
+      const wByH = (AREA.h - (r - 1) * GY) / (HEX * (1 + 0.75 * (r - 1)));
+      const w = Math.min(wByW, wByH, 250);
+      if (!best || w > best.w + 0.5 || (Math.abs(w - best.w) <= 0.5 && e < best.empty)) best = { cols: c, rows: r, empty: e, w };
     }
-    let tw = (AREA.w - AREA.gap * (best.cols - 1)) / best.cols;
-    let th = (AREA.h - AREA.gap * (best.rows - 1)) / best.rows;
-    tw = Math.min(tw, th * 1.7, 330); th = Math.min(th, tw * 1.05, 300);
-    return { ...best, tw: Math.floor(tw), th: Math.floor(th) };
+    const w = Math.floor(best.w), hh = Math.round(w * HEX), step = hh * 0.75 + GY;
+    const half = best.rows > 1 ? (w + GX) / 2 : 0;
+    const W = best.cols * w + (best.cols - 1) * GX + half, H = hh + (best.rows - 1) * step;
+    const pos = (i) => { const r = Math.floor(i / best.cols), c = i % best.cols; return { right: c * (w + GX) + (r % 2 ? half : 0), top: r * step }; };
+    return { ...best, w, hh, W: Math.ceil(W), H: Math.ceil(H), pos, tw: w, th: hh };
+  }
+
+  /** Rounded pointy-top hexagon path in a w×hh box (for clip-path and the gold hairline). */
+  function hexPath(w, hh, r, inset = 0) {
+    const i = inset, V = [[w / 2, i], [w - i, hh / 4 + i * 0.5], [w - i, hh * 0.75 - i * 0.5], [w / 2, hh - i], [i, hh * 0.75 - i * 0.5], [i, hh / 4 + i * 0.5]];
+    const towards = (a, b, d) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy); return [a[0] + (dx / L) * d, a[1] + (dy / L) * d]; };
+    let d = '';
+    V.forEach((v, k) => {
+      const prev = V[(k + 5) % 6], next = V[(k + 1) % 6];
+      const p1 = towards(v, prev, r), p2 = towards(v, next, r);
+      d += (k ? 'L' : 'M') + p1.map((x) => x.toFixed(1)).join(' ') + 'Q' + v.map((x) => x.toFixed(1)).join(' ') + ' ' + p2.map((x) => x.toFixed(1)).join(' ');
+    });
+    return d + 'Z';
   }
 
   function render() {
@@ -42,19 +62,25 @@
 
     // grid
     const L = layout(n);
-    const grid = h('div.board-grid', { style: { gridTemplateColumns: `repeat(${L.cols}, ${L.tw}px)`, gridAutoRows: `${L.th}px` } });
-    if (L.th < 120) grid.classList.add('dense');
-    const numSize = Math.round(Math.min(L.th * 0.5, L.tw * 0.42));
-    grid.style.setProperty('--num', numSize + 'px');
-    grid.style.setProperty('--lbl', Math.round(clamp(L.th * 0.12, 16, 26)) + 'px');
-    grid.style.setProperty('--sc', Math.round(Math.min(L.th * 0.36, L.tw * 0.3)) + 'px');
+    const grid = h('div.board-grid.hexgrid', { style: { width: L.W + 'px', height: L.H + 'px' } });
+    if (L.w < 140) grid.classList.add('dense');
+    grid.style.setProperty('--num', Math.round(L.w * 0.42) + 'px');
+    grid.style.setProperty('--lbl', Math.round(clamp(L.w * 0.11, 15, 26)) + 'px');
+    grid.style.setProperty('--sc', Math.round(L.w * 0.3) + 'px');
+    const clip = `path('${hexPath(L.w, L.hh, L.w * 0.09)}')`;
+    const line = hexPath(L.w, L.hh, L.w * 0.09, 1.5);
+    grid.append(h('div.hex-defs', { html: '<svg width="0" height="0"><defs><linearGradient id="hexGold" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".3" stop-color="#e7b448"/><stop offset=".55" stop-color="#8f5c12"/><stop offset=".8" stop-color="#f5d27a"/><stop offset="1" stop-color="#b27a1f"/></linearGradient></defs></svg>' }));
     tiles = [];
     for (let i = 1; i <= n; i++) {
       const res = CH.store.resultOf(i);
       const resume = cur && cur.n === i;
-      const t = h('button.tile', { type: 'button', 'data-n': i, 'aria-label': `כוורת ${i}` + (res ? `, שוחקה, ${fmtScore(res.score)} נקודות` : ''), style: { '--c': colorOf(i) } },
-        h('i.gem'), L.th > 120 ? h('span.lbl', 'כוורת') : null, h('span.num', String(i)),
-        h('span.score', h('b', res ? fmtScore(res.score) : ''), h('span', res && res.score === 1 ? 'נקודה' : 'נקודות'), res ? h('em', { html: `<bdi>${res.correct}/${res.total}</bdi>` + CH.ui.icons.check }) : null),
+      const p = L.pos(i - 1);
+      const t = h('button.tile', { type: 'button', 'data-n': i, 'aria-label': `כוורת ${i}` + (res ? `, שוחקה, ${fmtScore(res.score)} נקודות` : ''),
+        style: { '--c': colorOf(i), width: L.w + 'px', height: L.hh + 'px', right: p.right + 'px', top: p.top + 'px', clipPath: clip } },
+        h('span.hex-line', { html: `<svg viewBox="0 0 ${L.w} ${L.hh}"><path d="${line}"/></svg>` }),
+        h('i.gem'), h('span.lbl', res ? `כוורת ${i}` : 'כוורת'), h('span.num', String(i)),
+        h('span.score', h('b', res ? fmtScore(res.score) : ''), h('span', res && res.score === 1 ? 'נקודה' : 'נקודות'),
+          res ? h('em' + (res.correct ? '' : '.zero'), { html: `<bdi>${res.correct}/${res.total}</bdi>` + (res.correct ? CH.ui.icons.check : '') }) : null),
         h('span.lock', { html: CH.ui.icons.lock }),
         h('span.badge', 'בתהליך'));
       if (res) t.classList.add('is-played');
@@ -83,7 +109,7 @@
       box.append(h('div.lb-empty', h('div.ic', { html: CH.ui.icons.star }), 'עדיין אין תוצאות.', h('br'), 'בחרו כוורת ראשונה!'));
       return box;
     }
-    const MAX = rows.length > 6 ? 5 : 6;           // the panel holds 6 rows (5 + "ועוד…" line)
+    const MAX = rows.length > 7 ? 6 : 7;           // the panel holds 7 rows (6 + "ועוד…" line)
     const ol = h('ol');
     const top = rows[0].score;
     let rank = 0;
@@ -94,7 +120,7 @@
       const li = h('li.lb-row' + (lead ? '.first' : ''), { style: { '--c': colorOf(r.n) }, 'data-n': r.n },
         lead ? h('span.crown', { html: CH.ui.icons.crown }) : null,
         h('span.rk', String(rank)),
-        h('span.nm', h('bdi', `כוורת ${r.n}`), h('small', { html: `<bdi>${r.correct}/${r.total}</bdi>` + CH.ui.icons.check })),
+        h('span.nm', h('bdi', `כוורת ${r.n}`), h('small' + (r.correct ? '' : '.zero'), { html: `<bdi>${r.correct}/${r.total}</bdi>` + (r.correct ? CH.ui.icons.check : '') })),
         h('span.pt', fmtScore(r.score)));
       if (r.n === flashN) li.classList.add('is-new');
       ol.append(li);
@@ -109,9 +135,10 @@
     const L = layout(CH.store.getSettings().participants);
     tiles.forEach((t, i) => {
       const r = Math.floor(i / L.cols), c = i % L.cols;
+      const base = t.classList.contains('is-played') ? 'saturate(0) brightness(.78) ' : '';
       animate(t, [
-        { opacity: 0, transform: 'translateY(40px) scale(.8) rotateX(28deg)', filter: 'blur(6px)' },
-        { opacity: 1, transform: 'none', filter: 'blur(0)' },
+        { opacity: 0, transform: 'translateY(40px) scale(.7) rotateX(28deg)', filter: base + 'blur(6px)' },
+        { opacity: 1, transform: 'none', filter: base + 'blur(0px)' },
       ], { duration: 760, delay: 120 + (r + c) * 55, easing: 'cubic-bezier(.34,1.4,.64,1)', fill: 'backwards' });
     });
     el.querySelectorAll('.lb-row').forEach((row, i) =>
@@ -127,7 +154,7 @@
     const t = e.currentTarget; if (t.classList.contains('is-played')) return;
     const r = t.getBoundingClientRect();
     const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
-    t.style.transform = `translateY(-8px) scale(1.04) rotateY(${((px - 0.5) * 16).toFixed(2)}deg) rotateX(${((0.5 - py) * 14).toFixed(2)}deg)`;
+    t.style.transform = `translateY(-6px) scale(1.06) rotateY(${((px - 0.5) * 18).toFixed(2)}deg) rotateX(${((0.5 - py) * 16).toFixed(2)}deg)`;
     t.style.setProperty('--gx', (px * 100).toFixed(1) + '%'); t.style.setProperty('--gy', (py * 100).toFixed(1) + '%');
   }
   function untilt(e) { e.currentTarget.style.transform = ''; }

@@ -60,7 +60,10 @@
 #admin bdi.mono { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 0.92em; letter-spacing: -0.01em; }
 
 /* Hide the game layers while the opaque admin covers them (saves GPU while editing). */
-body.admin-covered #bg, body.admin-covered #viewport, body.admin-covered #fx-canvas { visibility: hidden; }
+body.admin-covered #bg, body.admin-covered #viewport, body.admin-covered #fx-canvas, body.admin-covered #viewport .screen.is-active { visibility: hidden; }
+body.admin-covered #stage *, body.admin-covered #bg * { animation-play-state: paused !important; }
+@media (min-width: 2400px) { #admin { zoom: 1.5; } }
+@media (min-width: 3200px) { #admin { zoom: 2; } }
 
 /* ---------------- Buttons ---------------- */
 #admin .a-btn {
@@ -831,10 +834,11 @@ body.in-admin .toast-host-light .toast.is-leaving { animation-name: adm-toast-ou
   #admin .adm-page.is-wide { padding-inline: 22px; }
 }
 @media (max-width: 1200px) {
-  #admin .adm-top { grid-template-columns: auto auto; }
+  #admin .adm-top { grid-template-columns: auto 1fr auto; }
+  #admin .adm-brand { grid-column: 1; grid-row: 1; }
   #admin .adm-brand-txt { display: none; }
-  #admin .adm-top-end { grid-column: 2; grid-row: 1; }
-  #admin .adm-tabs { grid-column: 1 / -1; grid-row: 1; justify-self: center; }
+  #admin .adm-tabs { grid-column: 2; grid-row: 1; justify-self: center; }
+  #admin .adm-top-end { grid-column: 3; grid-row: 1; }
   #admin .adm-saved { display: none; }
 }
 @media (max-width: 1080px) {
@@ -853,7 +857,8 @@ body.in-admin .toast-host-light .toast.is-leaving { animation-name: adm-toast-ou
   #admin .pv-dest > .a-select, #admin .pv-dest > .a-input { flex: 1 1 100%; }
   #admin .adm-page { padding: 20px 16px 0; }
   #admin .field-row, #admin .brand-grid { grid-template-columns: 1fr; }
-  #admin .adm-tab span { display: none; }
+  #admin .adm-tab span:not(.ic) { display: none; }
+  #admin .adm-top-end .a-btn span:not(.ic) { display: none; }
   #admin .srow { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) {
