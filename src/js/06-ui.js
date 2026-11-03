@@ -61,7 +61,10 @@
   function register(name, impl) { screens[name] = { name, el: screenEl(name), ...impl }; }
 
   /** Navigate with a zoom + blur cross-transition. */
+  let heading = null;
   function go(name, params = {}) {
+    if (heading === name) return busy;           // e.g. BACK clicked three times
+    heading = name;
     busy = busy.then(async () => {
       const from = current ? screens[current] : null, to = screens[name];
       if (!to) return;
@@ -87,7 +90,7 @@
       await inn.finished.catch(() => {});
       try { to.afterEnter && to.afterEnter(params); } catch (e) { console.error(e); }
       bus.emit('screen', name);
-    }).catch((e) => console.error(e));
+    }).catch((e) => console.error(e)).then(() => { if (heading === name) heading = null; });
     return busy;
   }
 
@@ -101,6 +104,8 @@
     const theme = opts.theme || (document.body.classList.contains('in-admin') ? 'light' : 'dark');
     return new Promise((resolve) => {
       const actions = opts.actions || [{ key: 'ok', label: 'אישור', kind: 'gold' }];
+      // Default action (Enter / initial focus): explicit, else the gold one — but never a destructive action.
+      const defKey = opts.defaultKey || (actions.find((a) => a.kind === 'gold') || actions.find((a) => a.kind !== 'danger') || actions[0]).key;
       let input = null;
       if (opts.input) input = h('input.modal-input', { type: 'text', value: opts.input.value || '', placeholder: opts.input.placeholder || '', dir: 'rtl' });
       const body = typeof opts.body === 'string' ? h('div.modal-body', { html: opts.body }) : h('div.modal-body', opts.body || '');
@@ -109,19 +114,22 @@
         h('div.modal-actions', actions.map((a) =>
           h('button.btn.btn-' + (a.kind || 'glass'), { type: 'button', 'data-key': a.key, onclick: () => close(a.key) },
             a.label, a.en ? h('span.sep') : null, a.en ? h('span.en', a.en) : null))));
-      const wrap = h('div.modal-wrap.' + theme, { onmousedown: (e) => { if (e.target === wrap && opts.dismissible !== false) close(null); } }, box);
+      const t0 = performance.now();
+      const fresh = () => performance.now() - t0 < 320;          // absorb double clicks / double Enter
+      const wrap = h('div.modal-wrap.' + theme, { onmousedown: (e) => { if (e.target === wrap && opts.dismissible !== false && !fresh()) close(null); } }, box);
       const host = theme === 'dark' ? $('#layer-modal') : document.body;
       host.append(wrap); openModals++;
       CH.sound && CH.sound.play('modal');
       const onKey = (e) => {
         if (e.key === 'Escape' && opts.dismissible !== false) { e.preventDefault(); e.stopPropagation(); close(null); }
+        else if ((e.key === 'Enter' || e.key === ' ') && fresh()) { e.preventDefault(); e.stopPropagation(); }
         else if (e.key === 'Enter' && !(e.target && e.target.tagName === 'BUTTON')) {
           e.preventDefault(); e.stopPropagation();
-          const first = actions.find((a) => a.kind === 'gold') || actions[0]; close(first.key);
+          close(defKey);
         }
       };
       window.addEventListener('keydown', onKey, true);
-      setTimeout(() => { (input || box.querySelector('.btn-gold') || box.querySelector('button')).focus(); if (input) input.select(); }, 60);
+      setTimeout(() => { (input || box.querySelector(`[data-key="${defKey}"]`) || box.querySelector('button')).focus({ preventScroll: true }); if (input) input.select(); }, 60);
       let done = false;
       function close(key) {
         if (done) return; done = true;
@@ -134,7 +142,7 @@
     });
   }
   const confirm = (title, body, { ok = 'אישור', cancel = 'ביטול', danger = false, theme } = {}) =>
-    modal({ title, body, theme, actions: [{ key: 'ok', label: ok, kind: danger ? 'danger' : 'gold' }, { key: 'cancel', label: cancel, kind: 'glass' }] })
+    modal({ title, body, theme, defaultKey: danger ? 'cancel' : 'ok', actions: [{ key: 'ok', label: ok, kind: danger ? 'danger' : 'gold' }, { key: 'cancel', label: cancel, kind: 'glass' }] })
       .then((r) => !!r && r.action === 'ok');
   const prompt = (title, value = '', { ok = 'שמירה', placeholder = '', theme } = {}) =>
     modal({ title, theme, input: { value, placeholder }, actions: [{ key: 'ok', label: ok, kind: 'gold' }, { key: 'cancel', label: 'ביטול', kind: 'glass' }] })
@@ -156,7 +164,7 @@
   function showHelp() {
     const rows = [
       ['רווח / Enter', 'התחל · שחק · המשך'], ['1 – 4', 'בחירת תשובה א׳–ד׳'], ['H', 'גלגל הצלה 50:50'],
-      ['Esc', 'חזרה'], ['F', 'מסך מלא'], ['M', 'השתקה / צליל'], ['?', 'עזרה זו'],
+      ['Esc', 'חזרה'], ['F', 'מסך מלא'], ['M', 'השתקה / הפעלת צליל'], ['?', 'עזרה זו'],
     ];
     const grid = h('div.keys-grid', rows.flatMap(([k, v]) => [h('div', h('kbd', k)), h('div', v)]));
     return modal({ title: 'קיצורי מקלדת למנחה', body: grid, theme: 'dark', actions: [{ key: 'ok', label: 'הבנתי', kind: 'gold' }] });

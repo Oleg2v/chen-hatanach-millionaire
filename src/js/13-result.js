@@ -2,6 +2,7 @@
 (function (CH) {
   'use strict';
   const { h, animate, sleep, fmtScore, countUp } = CH.u;
+  const U_fmt = (n) => fmtScore(n);
   const el = document.getElementById('scr-result');
   let ctx = null;
 
@@ -27,10 +28,12 @@
       h('div.rs-main',
         h('div.rs-who', { style: { '--c': CH.participantColor(log.n) } }, h('i'), `כוורת ${log.n}`),
         h('h1.rs-head.gold-text', headline(log)),
-        h('div.rs-wreath', wreathHost, h('div.rs-score', val, h('div.unit', 'נקודות'))),
-        h('div.rs-stats', h('span', h('b', String(log.correct)), ` מתוך ${log.total} תשובות נכונות`), marks)),
+        h('div.rs-wreath', wreathHost, h('div.rs-score', val, h('div.unit', log.score === 1 ? 'נקודה' : 'נקודות'))),
+        h('div.rs-stats', log.total === 1 ? h('span', log.correct ? 'תשובה נכונה' : 'תשובה לא נכונה') : h('span', h('b', String(log.correct)), ` מתוך ${log.total} תשובות נכונות`), marks)),
       h('div.rs-actions', backBtn));
     ctx.val = val; ctx.backBtn = backBtn;
+    const len = U_fmt(log.score).length; val.style.fontSize = (len <= 3 ? 196 : len === 4 ? 160 : 128) + 'px';
+    CH.u.fitWidth(el.querySelector('.ph-brand .t1'), 44, 26);
     ctx.wreath = CH.wreath && CH.wreath.create ? safe(() => CH.wreath.create(wreathHost)) : null;
     ctx.ladder = CH.ladder && CH.ladder.create ? safe(() => CH.ladder.create(ladderBox, { steps: steps || log.total || 1, level: log.correct })) : null;
   }
@@ -69,7 +72,8 @@
   }
 
   function back() {
-    if (!ctx) return;
+    if (!ctx || ctx.leaving) return;
+    ctx.leaving = true;
     CH.sound && CH.sound.play('back');
     const n = ctx.res.n;
     CH.ui.go('board', { flash: n });
@@ -86,7 +90,9 @@
     },
     leave() { if (ctx) { ctx.ladder && safe(() => ctx.ladder.destroy()); } ctx = null; CH.fx && CH.fx.clear && CH.fx.clear(); CH.sound && CH.sound.stopAll && CH.sound.stopAll(); },
     onKey(e) {
-      if (e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Escape') { e.preventDefault(); back(); }
+      if (e.code === 'Escape') { e.preventDefault(); back(); return; }
+      // Space/Enter only once the celebration has played (a stray second press must not skip it)
+      if ((e.code === 'Space' || e.code === 'Enter' || e.code === 'NumpadEnter') && ctx && ctx.ready) { e.preventDefault(); back(); }
     },
   });
 })(window.CH = window.CH || {});

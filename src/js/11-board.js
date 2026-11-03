@@ -43,6 +43,7 @@
     // grid
     const L = layout(n);
     const grid = h('div.board-grid', { style: { gridTemplateColumns: `repeat(${L.cols}, ${L.tw}px)`, gridAutoRows: `${L.th}px` } });
+    if (L.th < 120) grid.classList.add('dense');
     const numSize = Math.round(Math.min(L.th * 0.5, L.tw * 0.42));
     grid.style.setProperty('--num', numSize + 'px');
     grid.style.setProperty('--lbl', Math.round(clamp(L.th * 0.12, 16, 26)) + 'px');
@@ -53,9 +54,9 @@
       const resume = cur && cur.n === i;
       const t = h('button.tile', { type: 'button', 'data-n': i, 'aria-label': `כוורת ${i}` + (res ? `, שוחקה, ${fmtScore(res.score)} נקודות` : ''), style: { '--c': colorOf(i) } },
         h('i.gem'), L.th > 120 ? h('span.lbl', 'כוורת') : null, h('span.num', String(i)),
-        h('span.score', h('b', res ? fmtScore(res.score) : ''), h('span', 'נקודות'), res ? h('em', { html: `<bdi>${res.correct}/${res.total}</bdi>` + CH.ui.icons.check }) : null),
+        h('span.score', h('b', res ? fmtScore(res.score) : ''), h('span', res && res.score === 1 ? 'נקודה' : 'נקודות'), res ? h('em', { html: `<bdi>${res.correct}/${res.total}</bdi>` + CH.ui.icons.check }) : null),
         h('span.lock', { html: CH.ui.icons.lock }),
-        h('span.badge', 'בהמשך…'));
+        h('span.badge', 'בתהליך'));
       if (res) t.classList.add('is-played');
       if (resume) t.classList.add('is-resume');
       t.addEventListener('click', () => choose(i));
@@ -67,6 +68,7 @@
     }
     el.append(h('div.board-grid-wrap', grid));
     el.append(renderLeader());
+    CH.u.fitWidth(el.querySelector('.scr-head h1'), 68, 36);
 
     if (CH.store.questionsPerParticipant() === 0) {
       el.append(h('div.board-note.toast.err', 'אין שאלות תקינות באוסף הפעיל — פתחו את מסך הניהול (⚙)'));
@@ -81,21 +83,25 @@
       box.append(h('div.lb-empty', h('div.ic', { html: CH.ui.icons.star }), 'עדיין אין תוצאות.', h('br'), 'בחרו כוורת ראשונה!'));
       return box;
     }
-    const MAX = 8;
+    const MAX = rows.length > 6 ? 5 : 6;           // the panel holds 6 rows (5 + "ועוד…" line)
     const ol = h('ol');
+    const top = rows[0].score;
+    let rank = 0;
     rows.slice(0, MAX).forEach((r, i) => {
-      const rank = i === 0 || r.score !== rows[i - 1].score ? i + 1 : null;
-      const lead = i === 0 && r.score > 0;
+      // competition ranking: equal score and correct count share a rank
+      if (i === 0 || r.score !== rows[i - 1].score || r.correct !== rows[i - 1].correct) rank = i + 1;
+      const lead = r.score > 0 && r.score === top;
       const li = h('li.lb-row' + (lead ? '.first' : ''), { style: { '--c': colorOf(r.n) }, 'data-n': r.n },
         lead ? h('span.crown', { html: CH.ui.icons.crown }) : null,
-        h('span.rk', String(rank || '·')),
+        h('span.rk', String(rank)),
         h('span.nm', h('bdi', `כוורת ${r.n}`), h('small', { html: `<bdi>${r.correct}/${r.total}</bdi>` + CH.ui.icons.check })),
         h('span.pt', fmtScore(r.score)));
       if (r.n === flashN) li.classList.add('is-new');
       ol.append(li);
     });
     box.append(ol);
-    if (rows.length > MAX) box.append(h('div.lb-more', `ועוד ${rows.length - MAX} משתתפים`));
+    const more = rows.length - MAX;
+    if (more > 0) box.append(h('div.lb-more', more === 1 ? 'ועוד כוורת אחת' : `ועוד ${more} כוורות`));
     return box;
   }
 
@@ -138,6 +144,24 @@
       if (r && r.action === 'admin') CH.admin && CH.admin.open('questions');
       return;
     }
+    // Another hive is in progress → never overwrite it silently.
+    const settled = CH.store.settleCurrent();               // all its questions answered → just record it
+    if (settled) { refresh(); CH.ui.toast(`כוורת ${settled.n} נרשמה: ${fmtScore(settled.score)} נקודות`, { kind: 'ok' }); }
+    const cur = CH.store.current();
+    if (cur && cur.n !== n) {
+      if (cur.idx > 0) {
+        const r = await CH.ui.modal({
+          title: `כוורת ${cur.n} באמצע המשחק`,
+          body: `נענו ${cur.idx} מתוך ${cur.qids.length} שאלות · ${fmtScore(cur.score)} נקודות.<br>מה לעשות בה לפני שעוברים לכוורת ${n}?`,
+          defaultKey: 'resume',
+          actions: [{ key: 'resume', label: `המשך בכוורת ${cur.n}`, kind: 'gold' }, { key: 'finish', label: 'לסיים עם הניקוד הנוכחי', kind: 'glass' }, { key: 'drop', label: 'לבטל את הכוורת', kind: 'danger' }],
+        });
+        if (!r) return;
+        if (r.action === 'resume') return choose(cur.n);
+        if (r.action === 'finish') { const res = CH.store.finishParticipant(); refresh(); res && CH.ui.toast(`כוורת ${res.n} נרשמה: ${fmtScore(res.score)} נקודות`, { kind: 'ok' }); return; }
+        CH.store.abandonCurrent();
+      } else CH.store.abandonCurrent();                       // opened but nothing answered — nothing to lose
+    }
     choosing = true;
     const t = tiles[n - 1];
     CH.sound && CH.sound.play('tile');
@@ -154,7 +178,7 @@
   async function offerUnlock(n) {
     const res = CH.store.resultOf(n);
     const ok = await CH.ui.confirm(`כוורת ${n} כבר שוחקה`, `התוצאה: <b>${fmtScore(res.score)}</b> נקודות (${res.correct} מתוך ${res.total} נכונות).<br>הכוורת נעולה. לפתוח אותה מחדש ולמחוק את התוצאה?`,
-      { ok: 'פתיחה מחדש', cancel: 'השאר נעול', danger: true });
+      { ok: 'פתיחה מחדש', cancel: 'להשאיר נעולה', danger: true });
     if (ok) { CH.store.unlockParticipant(n); refresh(); CH.ui.toast(`כוורת ${n} נפתחה מחדש`); }
   }
 

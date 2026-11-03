@@ -42,7 +42,7 @@ const jsFiles = fs.readdirSync(S('js')).filter((f) => f.endsWith('.js')).sort();
 const scripts = [
   `<script>window.CH_BUILD=${JSON.stringify({ time: new Date().toISOString(), files: jsFiles })};` +
   `window.CH_BRAND=${JSON.stringify(brand)};</script>`,
-  `<script>/* SheetJS Community Edition (Apache-2.0) */\n${safeScript(read(S('vendor', 'xlsx.mini.min.js')))}</script>`,
+  `<script>/* SheetJS Community Edition (Apache-2.0) */\n${safeScript(read(S('vendor', 'xlsx.core.min.js')))}</script>`,
   ...jsFiles.map((f) => `<script>/* ── ${f} ── */\n${safeScript(read(S('js', f)))}\n</script>`),
 ].join('\n');
 

@@ -4,7 +4,7 @@ import fs from 'node:fs'; import vm from 'node:vm'; import path from 'node:path'
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const ctx = { console }; vm.createContext(ctx);
-vm.runInContext(fs.readFileSync(path.join(root, 'src/vendor/xlsx.mini.min.js'), 'utf8'), ctx);
+vm.runInContext(fs.readFileSync(path.join(root, 'src/vendor/xlsx.core.min.js'), 'utf8'), ctx);
 const XLSX = ctx.XLSX;
 // pull the demo questions straight from the store source so the text stays byte-identical
 const storeSrc = fs.readFileSync(path.join(root, 'src/js/01-store.js'), 'utf8');

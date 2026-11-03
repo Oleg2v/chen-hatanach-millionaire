@@ -6,7 +6,7 @@
   const KEY = { settings: 'chm.v1.settings', sets: 'chm.v1.sets', active: 'chm.v1.activeSet', round: 'chm.v1.round' };
 
   const DEFAULT_SETTINGS = {
-    title: 'כוכב התנ"ך',
+    title: 'כוכב התנ״ך',
     level: 'רמה 2',
     participants: 16,
     perParticipant: 4,          // 1 | 4 | 10
@@ -57,8 +57,17 @@
       correct: clean(raw.correct ?? raw.answer ?? ''),
       wrong: [0, 1, 2].map((i) => clean(wrong[i] ?? '')),
       source: clean(raw.source ?? ''),
-      points: (() => { const p = parseFloat(String(raw.points ?? raw['ניקוד'] ?? '').replace(',', '.')); return Number.isFinite(p) && p > 0 ? p : null; })(),
+      points: (() => { const p = parseFloat(String(raw.points ?? raw['נקודות'] ?? raw['ניקוד'] ?? '').replace(',', '.')); return Number.isFinite(p) && p > 0 ? p : null; })(),
     };
+  }
+  /** Comparable text key (ignores nikud, te'amim, punctuation, spacing). */
+  const textKey = (s) => String(s || '').replace(/[\u0591-\u05C7]/g, '').replace(/[^\u05D0-\u05EAa-z0-9]+/gi, ' ').trim();
+  /** A set name not used by another set: 'רמה 1' → 'רמה 1 (2)'. */
+  function uniqueName(name, exceptId) {
+    const base = String(name || 'אוסף חדש').trim() || 'אוסף חדש';
+    const taken = new Set(sets.filter((s) => s.id !== exceptId).map((s) => s.name));
+    if (!taken.has(base)) return base;
+    for (let i = 2; ; i++) if (!taken.has(`${base} (${i})`)) return `${base} (${i})`;
   }
   /** Points a question is worth (its own value, or the game default). */
   function pointsOf(q) { return (q && q.points > 0 ? q.points : settings.points); }
@@ -97,7 +106,7 @@
     },
     displayTitle() {
       const t = String(settings.title || '').trim(), l = String(settings.level || '').trim();
-      return CH.u.typo(t && l ? `${t} – ${l}` : t || l || 'כוכב התנ"ך');
+      return CH.u.typo(t && l ? `${t} – ${l}` : t || l || 'כוכב התנ״ך');
     },
 
     // sets
@@ -107,10 +116,10 @@
     activeSetId: () => activeSetId,
     setActive(id) { if (getSet(id)) { activeSetId = id; round.deck = []; changed('sets'); changed('round'); } },
     createSet(name, questions = []) {
-      const s = { id: 'set-' + uid(), name: String(name || 'אוסף חדש').trim(), questions: questions.map((q) => normalizeQuestion(q, { newId: true })), updatedAt: Date.now() };
+      const s = { id: 'set-' + uid(), name: uniqueName(name), questions: questions.map((q) => normalizeQuestion(q, { newId: true })), updatedAt: Date.now() };
       sets.push(s); changed('sets'); return s;
     },
-    renameSet(id, name) { const s = getSet(id); if (s && String(name).trim()) { s.name = String(name).trim(); s.updatedAt = Date.now(); changed('sets'); } },
+    renameSet(id, name) { const s = getSet(id); if (s && String(name).trim()) { s.name = uniqueName(name, id); s.updatedAt = Date.now(); changed('sets'); } return s && s.name; },
     duplicateSet(id) { const s = getSet(id); if (!s) return null; return api.createSet(s.name + ' (עותק)', s.questions); },
     deleteSet(id) {
       if (sets.length <= 1) return false;
@@ -136,9 +145,13 @@
     appendQuestions(setId, list) { const s = getSet(setId); if (!s) return 0; const n = list.map((q) => normalizeQuestion(q, { newId: true })); s.questions.push(...n); s.updatedAt = Date.now(); changed('sets'); return n.length; },
     replaceQuestions(setId, list) { const s = getSet(setId); if (!s) return 0; s.questions = list.map((q) => normalizeQuestion(q, { newId: true })); s.updatedAt = Date.now(); round.deck = []; changed('sets'); changed('round'); return s.questions.length; },
     restoreDemo() {
+      // Non-destructive: put back the 4 original demo questions (re-add missing, reset edited), keep everything else.
       const d = getSet(DEMO_SET_ID);
-      if (d) { d.questions = demoSet().questions; d.name = demoSet().name; d.updatedAt = Date.now(); }
-      else sets.unshift(demoSet());
+      if (d) {
+        const fresh = demoSet().questions;
+        const others = d.questions.filter((q) => !String(q.id).startsWith('demo-'));
+        d.questions = [...fresh, ...others]; d.updatedAt = Date.now();
+      } else sets.unshift(demoSet());
       activeSetId = DEMO_SET_ID; round.deck = []; changed('sets'); changed('round');
       return getSet(DEMO_SET_ID);
     },
@@ -151,9 +164,12 @@
     // ---------- round ----------
     getRound: () => round,
     /** Number of questions each participant actually gets (clamped by pool size). */
-    questionsPerParticipant() { return Math.min(settings.perParticipant, activeSet().questions.filter((q) => !validateQuestion(q).length).length); },
+    questionsPerParticipant() { const ok = activeSet().questions.filter((q) => !validateQuestion(q).length); return Math.min(settings.perParticipant, new Set(ok.map((q) => textKey(q.q) + '|' + textKey(q.correct))).size); },
     resultOf: (n) => round.results[n] || null,
     resetRound() { round = emptyRound(); changed('round'); },
+    textKey,
+    /** Finish the in-progress hive if all its questions were answered; returns the result or null. */
+    settleCurrent() { const c = round.current; return c && c.idx >= c.qids.length ? api.finishParticipant() : null; },
     unlockParticipant(n) { delete round.results[n]; if (round.current && round.current.n === n) round.current = null; changed('round'); },
 
     /** Draw k questions without repeats across participants until the pool runs out, then reshuffle. */
@@ -161,11 +177,15 @@
       const pool = activeSet().questions.filter((q) => !validateQuestion(q).length);
       const ids = new Set(pool.map((q) => q.id));
       round.deck = (round.deck || []).filter((id) => ids.has(id));
-      const picked = [];
-      while (picked.length < Math.min(k, pool.length)) {
+      const picked = [], keys = new Set(), byId = new Map(pool.map((q) => [q.id, q]));
+      const want = Math.min(k, new Set(pool.map((q) => textKey(q.q) + '|' + textKey(q.correct))).size);
+      let guard = pool.length * 3 + 10;
+      while (picked.length < want && guard-- > 0) {
         if (!round.deck.length) round.deck = shuffle(pool.map((q) => q.id).filter((id) => !picked.includes(id)));
         if (!round.deck.length) break;
-        picked.push(round.deck.shift());
+        const id = round.deck.shift(), q = byId.get(id), key = textKey(q.q) + '|' + textKey(q.correct);
+        if (keys.has(key)) continue;            // same question text twice in one hive → skip the copy
+        keys.add(key); picked.push(id);
       }
       changed('round');
       return picked.map((id) => pool.find((q) => q.id === id));
@@ -196,5 +216,7 @@
     },
   };
 
+  // A hive whose every question was already answered (e.g. reload before 'לתוצאה') is recorded, never lost.
+  if (round.current && round.current.qids && round.current.idx >= round.current.qids.length) api.finishParticipant();
   CH.store = api;
 })(window.CH = window.CH || {});

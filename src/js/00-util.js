@@ -80,7 +80,7 @@
     let t = String(s ?? '');
     t = t.replace(/[‎‏‪-‮⁦-⁩﻿­]/g, '');
     t = t.replace(/[  -​  　\t\r\n]+/g, ' ');
-    if (opts.stripCantillation) t = t.replace(/[֑-֯׀]/g, '');
+    if (opts.stripCantillation) t = t.replace(/[\u0591-\u05AF\u05BD\u05C0]/g, '');
     return t.replace(/ {2,}/g, ' ').trim();
   }
 
@@ -127,5 +127,13 @@
     setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
   }
 
-  CH.u = { $, $$, h, esc, sleep, nextFrame, clamp, lerp, rand, uid, shuffle, LS, bus, typo, cleanHebrew, animate, countUp, fmtScore, LETTERS, download, reduced };
+  /** Shrink a single-line element's font until it fits its box (nowrap titles). */
+  function fitWidth(el, maxPx, minPx) {
+    if (!el) return;
+    let px = maxPx; el.style.fontSize = px + 'px';
+    while (px > minPx && el.scrollWidth > el.clientWidth + 1) { px -= 2; el.style.fontSize = px + 'px'; }
+    return px;
+  }
+
+  CH.u = { fitWidth, $, $$, h, esc, sleep, nextFrame, clamp, lerp, rand, uid, shuffle, LS, bus, typo, cleanHebrew, animate, countUp, fmtScore, LETTERS, download, reduced };
 })(window.CH = window.CH || {});

@@ -25,7 +25,7 @@
 
   function render() {
     const s = CH.store.getSettings();
-    const title = CH.u.typo(String(s.title || '').trim() || 'כוכב התנ"ך');
+    const title = CH.u.typo(String(s.title || '').trim() || 'כוכב התנ״ך');
     const level = CH.u.typo(String(s.level || '').trim());
     el.innerHTML = '';
     const wordmark = h('div.sp-wordmark', { html: CH.art && CH.art.wordmark ? CH.art.wordmark() : '' });
@@ -40,6 +40,7 @@
       h('div.sp-footer', 'חן התנ״ך', h('span.dot'), 'למעלה מ־40 שנה של חידוני תנ״ך'),
     ];
     el.append(...kids);
+    CH.u.fitWidth(titleEl, 176, 88);
     return { wordmark, emb, titleEl, startBtn };
   }
 

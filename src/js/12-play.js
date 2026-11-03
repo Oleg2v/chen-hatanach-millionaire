@@ -21,7 +21,8 @@
     el.innerHTML = '';
     refs = {};
     refs.scoreVal = h('div.val.gold-text', fmtScore(c.score));
-    refs.score = h('div.score-panel.glass', h('div.lbl', { html: CH.ui.icons.star + '<span>ניקוד</span>' }), refs.scoreVal);
+    refs.score = h('div.score-panel.glass', h('div.lbl', { html: CH.ui.icons.star + '<span>נקודות</span>' }), refs.scoreVal);
+    sizeScore(fmtScore(c.score));
     refs.dots = h('div.dots', st.qs.map(() => h('i')));
     refs.progLbl = h('div.lbl');
     el.append(h('header.scr-head',
@@ -31,6 +32,7 @@
       h('div.spacer'),
       refs.score));
     el.append(h('div.ph-progress', { style: { top: '74px', left: '770px' } }, refs.progLbl, refs.dots));
+    CH.u.fitWidth(el.querySelector('.ph-brand .t1'), 44, 26);
 
     // ladder (tree + climber)
     refs.ladderBox = h('div.ladder-box');
@@ -86,6 +88,9 @@
     refs.progLbl.innerHTML = `שאלה <b>${Math.min(st.idx + 1, st.qs.length)}</b> מתוך <b>${st.qs.length}</b>`;
   }
 
+  /** Long scores (1000+, 7.5…) step the counter font down so they never collide with the label. */
+  function sizeScore(text) { const n = String(text).length; refs.scoreVal.style.fontSize = (n <= 3 ? 78 : n === 4 ? 62 : 50) + 'px'; }
+
   // ---------------- text fitting ----------------
   function fit(elm, sizes, maxH) {
     for (const s of sizes) { elm.style.fontSize = s + 'px'; if (elm.scrollHeight <= maxH + 1) return s; }
@@ -111,6 +116,7 @@
   }
 
   async function showQuestion() {
+    const my = st;
     st.phase = 'showing';
     const q = st.qs[st.idx];
     st.order = shuffle([{ text: q.correct, correct: true }, ...q.wrong.map((w) => ({ text: w, correct: false }))]);
@@ -126,7 +132,12 @@
     // question text, word by word
     const words = wordsInto(refs.qText, q.q);
     refs.qBoard.classList.toggle('has-timer', !!settings().answerTime);
-    fit(refs.qText, [76, 72, 68, 64, 58, 52], settings().answerTime ? 268 : 284);
+    const qMax = settings().answerTime ? 268 : 284;
+    refs.qText.style.lineHeight = '';
+    if (fit(refs.qText, [76, 72, 68, 64], qMax) === 64 && refs.qText.scrollHeight > qMax + 1) {
+      refs.qText.style.lineHeight = '1.36';      // three comfortable lines at the 64px minimum before going smaller
+      fit(refs.qText, [64, 60, 56, 52, 48, 44, 40], qMax);
+    }
     words.forEach((w) => (w.style.opacity = 0));
     snd('question');
     animate(refs.qTag, [{ opacity: 0, transform: 'translateY(10px) scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(.34,1.56,.64,1)' });
@@ -135,6 +146,7 @@
       { opacity: 0, transform: 'translateY(26px)', filter: 'blur(10px)' },
       { opacity: 1, transform: 'none', filter: 'blur(0)' },
     ], { duration: 620, delay: i * per, easing: 'cubic-bezier(.16,1,.3,1)' })));
+    if (st !== my) return;
 
     // answers, staggered
     st.order.forEach((a, i) => {
@@ -144,9 +156,14 @@
       const t = b.querySelector('.txt');
       t.textContent = a.text;
       b.style.opacity = '0';
-      fit(t, [52, 50, 48, 46], 92) === 46 && t.scrollHeight > 93 && fit(t, [44, 42, 40, 38], 122);
     });
+    // one font size for all four boards: the largest that fits every answer (1 line ≥46px, else 2 lines)
+    const txts = refs.ans.map((b) => b.querySelector('.txt'));
+    const fitsAt = (px, maxH) => txts.every((t) => { t.style.fontSize = px + 'px'; return t.scrollHeight <= maxH + 1; });
+    const size = [52, 50, 48, 46].find((px) => fitsAt(px, 92)) || [44, 42, 40, 38, 36, 34].find((px) => fitsAt(px, 122)) || 34;
+    txts.forEach((t) => (t.style.fontSize = size + 'px'));
     await sleep(120);
+    if (st !== my) return;
     await Promise.all(refs.ans.map((b, i) => sleep(i * 150).then(() => {
       snd('answer', { index: i });
       return animate(b, [
@@ -154,6 +171,7 @@
         { opacity: 1, transform: 'none', filter: 'blur(0)' },
       ], { duration: 560, easing: 'cubic-bezier(.16,1,.3,1)' }).then((an) => { b.style.opacity = ''; an && an.cancel && an.cancel(); });
     })));
+    if (st !== my) return;
     refs.ans.forEach((b) => b.classList.add('is-ready'));
     refs.fifty.disabled = false;
     st.phase = 'answering';
@@ -171,10 +189,12 @@
     animate(refs.timer, [{ opacity: 0, transform: 'scale(.5) rotate(-90deg)' }, { opacity: 1, transform: 'none' }], { duration: 600, easing: 'cubic-bezier(.34,1.56,.64,1)' });
     cancelAnimationFrame(tm.raf); tm.raf = requestAnimationFrame(tickTimer);
   }
+  const overlayOpen = () => !!(CH.ui.modalOpen || (CH.admin && CH.admin.isOpen && CH.admin.isOpen()));
   function tickTimer(now) {
     if (!st || !tm.running) return;
-    tm.left -= now - tm.last; tm.last = now;
-    const left = Math.max(0, tm.left), sec = Math.ceil(left / 1000);
+    const dt = Math.max(0, now - tm.last); tm.last = Math.max(tm.last, now);
+    if (!overlayOpen()) tm.left -= dt;           // frozen under help / exit dialog / admin
+    const left = Math.min(tm.total, Math.max(0, tm.left)), sec = Math.ceil(left / 1000);
     refs.timer.style.setProperty('--p', (left / tm.total * 100).toFixed(2));
     if (sec !== tm.sec) {
       tm.sec = sec; refs.timer.querySelector('b').textContent = sec;
@@ -196,7 +216,9 @@
     refs.half.innerHTML = 'הזמן נגמר';
     refs.half.classList.add('is-timeout');
     animate(refs.half, [{ opacity: 0, transform: 'scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+    const my = st;
     await sleep(700);
+    if (st !== my) return;
     const ci = st.order.findIndex((a) => a.correct);
     const cb = refs.ans[ci];
     cb.classList.remove('is-dim', 'is-gone');
@@ -214,7 +236,9 @@
     refs.ans.forEach((x, j) => { x.classList.remove('is-ready'); if (j !== i && !st.removed.has(j)) x.classList.add('is-dim'); });
     b.classList.add('is-locked');
     snd('lock');
+    const my = st;
     await sleep(LOCK_MS);
+    if (st !== my) return;
     CH.sound && CH.sound.stopAll && CH.sound.stopAll();
 
     const ci = st.order.findIndex((a) => a.correct);
@@ -240,6 +264,7 @@
       b.querySelector('.mark').innerHTML = CH.ui.icons.x;
       snd('wrong');
       await sleep(650);
+      if (st !== my) return;
       const cb = refs.ans[ci];
       cb.classList.remove('is-dim', 'is-gone');
       cb.classList.add('is-correct', 'is-reveal');
@@ -257,7 +282,9 @@
     updateProgress();
 
     // source (bonus) + next button
+    const my = st;
     await sleep(ok ? 500 : 250);
+    if (st !== my) return;
     const src = st.qs[st.idx].source;
     if (src) {
       refs.source.querySelector('span').textContent = src;
@@ -265,6 +292,7 @@
       animate(refs.source, [{ opacity: 0, transform: 'translateY(-14px)', filter: 'blur(8px)' }, { opacity: 1, transform: 'none', filter: 'blur(0)' }], { duration: 700, easing: 'cubic-bezier(.16,1,.3,1)' });
     }
     await Promise.all(climbs);
+    if (st !== my) return;
     const last = st.idx + 1 >= st.qs.length;
     refs.next.innerHTML = last
       ? `<span>לתוצאה</span><span class="sep"></span><span class="en">RESULT</span>${CH.ui.icons.next}`
@@ -300,6 +328,7 @@
     snd('points');
     fxOn('burst') && CH.fx.burst(to.x, to.y, { kind: 'stars', count: 30 });
     refs.score.classList.remove('bump'); void refs.score.offsetWidth; refs.score.classList.add('bump');
+    sizeScore(fmtScore(newScore));
     await countUp(refs.scoreVal, oldScore, newScore, 700);
   }
 
@@ -328,10 +357,12 @@
     st.phase = 'leaving';
     snd('click');
     if (st.idx + 1 >= st.qs.length) {
+      st.finishing = true;
       const res = CH.store.finishParticipant();
-      CH.ui.go('result', { res, steps: st.qs.length });
+      CH.ui.go(res ? 'result' : 'board', res ? { res, steps: st.qs.length } : {});
       return;
     }
+    const my = st;
     // clear the boards
     animate(refs.next, [{ opacity: 1 }, { opacity: 0, transform: 'scale(.9)' }], { duration: 260 }).then(() => (refs.next.hidden = true));
     animate(refs.source, [{ opacity: 1 }, { opacity: 0 }], { duration: 300 });
@@ -340,6 +371,7 @@
       animate(refs.qText, [{ opacity: 1, filter: 'blur(0)', transform: 'none' }, { opacity: 0, filter: 'blur(12px)', transform: 'translateY(-20px)' }], { duration: 420, easing: 'ease-in' }),
       ...refs.ans.map((b, i) => animate(b, [{ opacity: b.classList.contains('is-gone') ? 0 : 1, transform: 'none' }, { opacity: 0, transform: 'scale(.95)' }], { duration: 360, delay: i * 50, easing: 'ease-in' })),
     ]);
+    if (st !== my) return;
     refs.qText.getAnimations().forEach((a) => a.cancel());
     refs.slots.forEach((sl) => sl.classList.remove('is-gone'));
     refs.ans.forEach((b) => { b.getAnimations().forEach((a) => a.cancel()); b.className = 'ans empty'; b.querySelector('.txt').textContent = ''; b.querySelector('.mark').innerHTML = ''; b.style.visibility = ''; });
@@ -349,14 +381,18 @@
   }
 
   async function exitPrompt() {
-    if (!st || st.phase === 'locked' || st.phase === 'showing') return;
+    if (!st || st.phase === 'locked' || st.phase === 'showing' || st.phase === 'leaving') return;
     pauseTimer();
     const r = await CH.ui.modal({
       title: `לצאת מכוורת ${st.cur.n}?`,
       body: 'ההתקדמות נשמרת — אפשר לחזור ולהמשיך מאותה נקודה.',
       actions: [{ key: 'stay', label: 'המשך לשחק', kind: 'gold' }, { key: 'leave', label: 'חזרה ללוח', kind: 'glass' }],
     });
-    if (r && r.action === 'leave') { snd('back'); CH.ui.go('board'); } else resumeTimer();
+    if (r && r.action === 'leave') {
+      snd('back');
+      if (st && st.phase === 'revealed' && st.idx + 1 >= st.qs.length) { st.finishing = true; const res = CH.store.finishParticipant(); return CH.ui.go('board', { flash: res && res.n }); }
+      CH.ui.go('board');
+    } else resumeTimer();
   }
 
   CH.ui.register('play', {
@@ -391,6 +427,13 @@
       if (code === 'KeyH') { e.preventDefault(); fifty(); return; }
       if (code === 'Escape') { e.preventDefault(); exitPrompt(); }
     },
+  });
+
+  // The round was reset (or this hive cancelled) from the admin while it was open → leave cleanly.
+  CH.u.bus.on('store:change', ({ what }) => {
+    if (what !== 'round' || !st || st.finishing || CH.ui.current !== 'play') return;
+    const c = CH.store.current();
+    if (!c || c.n !== st.cur.n) { pauseTimer(); st.phase = 'leaving'; CH.ui.go('board'); }
   });
 
   // test hook (used by the automated e2e checks)
