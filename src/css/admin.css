@@ -410,9 +410,11 @@ body.admin-covered #bg, body.admin-covered #viewport, body.admin-covered #fx-can
 #admin .chip-toggle:disabled { opacity: 0.5; cursor: default; }
 #admin .chip-toggle:focus-visible { outline: none; box-shadow: var(--a-ring); }
 #admin .seg-count:not(:empty) { min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--a-amber-200); color: #6f4300; font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; }
+#admin .q-tip { display: flex; align-items: center; gap: 8px; margin: 2px 4px 0; font-size: 12.5px; color: var(--a-ink-4); line-height: 1.6; }
+#admin .q-tip > .ic { width: 15px; height: 15px; }
+#admin .q-tip kbd { margin: 0 1px; }
 #admin .q-found { font-size: 13px; color: var(--a-ink-3); font-variant-numeric: tabular-nums; }
 #admin .q-spacer { flex: 1; }
-#admin .q-hint { font-size: 12.5px; color: var(--a-ink-4); }
 
 /* table card (no overflow clipping: the header is sticky against the #admin scroller) */
 #admin .qt-card { position: relative; background: #fff; border: 1px solid var(--a-line); border-radius: var(--a-r); box-shadow: var(--a-sh-2); }
@@ -559,6 +561,7 @@ body.admin-covered #bg, body.admin-covered #viewport, body.admin-covered #fx-can
 }
 #admin .dz-orb svg { width: 24px; height: 24px; }
 #admin .dz:hover .dz-orb, #admin .dz.is-over .dz-orb { transform: translateY(-4px) scale(1.06); }
+#admin .dz.is-error .dz-orb { background: linear-gradient(180deg, #ef5a69, #c62f41); box-shadow: 0 0 0 5px #fff, 0 10px 22px -6px rgba(198, 47, 65, 0.55); }
 #admin .dz-spin { width: 22px; height: 22px; border-radius: 50%; border: 2.5px solid rgba(255, 255, 255, 0.35); border-top-color: #fff; animation: adm-spin 700ms linear infinite; }
 #admin .dz-title { font-size: 20px; font-weight: 650; letter-spacing: -0.01em; color: var(--a-ink); }
 #admin .dz-title.err { display: inline-flex; align-items: flex-start; gap: 8px; max-width: 760px; color: #a22336; font-size: 16px; font-weight: 600; line-height: 1.5; }
@@ -624,6 +627,7 @@ body.admin-covered #bg, body.admin-covered #viewport, body.admin-covered #fx-can
 #admin .pv-file.k-csv { color: #127f8a; background: #e5f6f7; }
 #admin .pv-file.k-json { color: #c46d0c; background: #fff2e2; }
 #admin .pv-file-txt { flex: 1; min-width: 0; }
+#admin .fname { unicode-bidi: isolate; }
 #admin .pv-name { font-size: 16px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #admin .pv-meta { font-size: 13px; color: var(--a-ink-3); }
 #admin .pv-sum { display: flex; gap: 8px; }
@@ -687,6 +691,16 @@ body.admin-covered #bg, body.admin-covered #viewport, body.admin-covered #fx-can
 @keyframes dc-draw { to { stroke-dashoffset: 0; } }
 #admin .done-burst { position: absolute; inset: -18px; border-radius: 50%; background: radial-gradient(circle, rgba(61, 181, 74, 0.22), transparent 65%); animation: dc-burst 1200ms 300ms var(--ease-out) both; }
 @keyframes dc-burst { from { transform: scale(0.4); opacity: 0; } 40% { opacity: 1; } to { transform: scale(1.5); opacity: 0; } }
+#admin .done-gems { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+#admin .done-gems i {
+  position: absolute; width: 9px; height: 9px; margin: -4.5px; background: var(--c); border-radius: 2px; opacity: 0;
+  animation: dc-gem 1100ms calc(380ms + var(--t)) cubic-bezier(.12, .8, .3, 1) both;
+}
+@keyframes dc-gem {
+  0% { opacity: 0; transform: rotate(var(--a)) translateX(30px) rotate(45deg) scale(.4); }
+  18% { opacity: 1; }
+  100% { opacity: 0; transform: rotate(var(--a)) translateX(var(--d)) rotate(225deg) scale(1); }
+}
 #admin .done-title { font-size: 28px; font-weight: 700; letter-spacing: -0.015em; animation: dc-up 520ms 380ms var(--ease-out) both; }
 #admin .done-sub { margin-top: 6px; font-size: 15px; color: var(--a-ink-3); animation: dc-up 520ms 460ms var(--ease-out) both; }
 #admin .done-sub b { color: var(--a-ink); font-weight: 600; }
@@ -727,9 +741,6 @@ body.in-admin .toast-host-light .toast.is-leaving { animation-name: adm-toast-ou
   #admin .qs { grid-template-columns: 290px minmax(0, 1fr); gap: 28px; }
   #admin .adm-page-head h1 { font-size: 28px; }
   #admin .sh-title { font-size: 27px; }
-}
-@media (max-width: 1320px) {
-  #admin .q-hint { display: none; }
 }
 @media (max-width: 1200px) {
   #admin .adm-top { grid-template-columns: auto auto; }

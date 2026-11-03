@@ -9,6 +9,8 @@
   const FALLBACK_COLORS = ['#e63a35', '#3db54a', '#ec4f9c', '#17b8c4', '#f7941d', '#2a6fd6'];
   const GOLD = '#ffd56a';
   const DUST = ['#ffe6a3', '#ffd56a', '#fff3d1', '#ffcf6e', '#cfe9ff', '#a8d8ff'];
+  const GLASS_FLAKES = ['#4a82e0', '#2f63c9', '#1f4aa6', '#173b8a', '#6c9ff0'];
+  const GOLD_FLAKES = ['#ffe49a', '#f6c64e', '#e9a42c', '#fff1bf'];
   const CUBE_LETTERS = ['א', 'ב', 'ת', 'נ', 'ך', 'ש'];
 
   const rand = (a, b) => a + Math.random() * (b - a);
@@ -19,6 +21,7 @@
   const easeInOut3 = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
   const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
   const reduced = () => !!(CH.u && CH.u.reduced);
+  const shuffle = (a) => (CH.u && CH.u.shuffle ? CH.u.shuffle(a) : a);
   const emblemColors = () => (CH.art && Array.isArray(CH.art.EMBLEM_COLORS) && CH.art.EMBLEM_COLORS.length >= 6 ? CH.art.EMBLEM_COLORS : FALLBACK_COLORS);
 
   // ---------------------------------------------------------------- colour helpers
@@ -61,49 +64,38 @@
     /** tight dust mote */
     dot(c) {
       const S = 32, cv = canvasOf(S), g = cv.getContext('2d'), m = S / 2;
-      radial(g, m, m, [[0, rgba(mixRGB(c, WHITE, 0.85), 1)], [0.22, rgba(mixRGB(c, WHITE, 0.3), 0.95)], [0.5, rgba(c, 0.3)], [1, rgba(c, 0)]]);
+      radial(g, m, m, [[0, rgba(mixRGB(c, WHITE, 0.85), 1)], [0.24, rgba(mixRGB(c, WHITE, 0.3), 0.95)], [0.52, rgba(c, 0.32)], [1, rgba(c, 0)]]);
       return cv;
     },
-    /** four-point star glint with diagonal sparkles and a halo */
+    /** four-point star glint (+ short diagonals); drawn with normal blending so gold stays gold on bright skies */
     glint(c) {
       const S = 128, cv = canvasOf(S), g = cv.getContext('2d'), m = S / 2;
-      radial(g, m, m * 0.5, [[0, rgba(c, 0.5)], [0.5, rgba(c, 0.14)], [1, rgba(c, 0)]]);
+      radial(g, m, m * 0.34, [[0, rgba(c, 0.45)], [1, rgba(c, 0)]]);
       const ray = (len, wid, rot) => {
         g.save(); g.translate(m, m); g.rotate(rot);
         const rg = g.createRadialGradient(0, 0, 0, 0, 0, len);
-        rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.3, rgba(mixRGB(c, WHITE, 0.45), 0.9)); rg.addColorStop(1, rgba(c, 0));
+        rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.22, rgba(mixRGB(c, WHITE, 0.55), 1));
+        rg.addColorStop(0.55, rgba(c, 0.85)); rg.addColorStop(1, rgba(c, 0));
         g.fillStyle = rg;
-        g.beginPath(); g.moveTo(-len, 0); g.lineTo(0, -wid); g.lineTo(len, 0); g.lineTo(0, wid); g.closePath(); g.fill();
+        g.beginPath(); g.moveTo(-len, 0); g.quadraticCurveTo(0, -wid * 0.35, 0, -wid); g.quadraticCurveTo(0, -wid * 0.35, len, 0);
+        g.quadraticCurveTo(0, wid * 0.35, 0, wid); g.quadraticCurveTo(0, wid * 0.35, -len, 0); g.closePath(); g.fill();
         g.restore();
       };
-      ray(m * 0.98, m * 0.075, 0); ray(m * 0.98, m * 0.075, Math.PI / 2);
-      ray(m * 0.42, m * 0.05, Math.PI / 4); ray(m * 0.42, m * 0.05, -Math.PI / 4);
-      radial(g, m, m * 0.16, [[0, 'rgba(255,255,255,1)'], [1, 'rgba(255,255,255,0)']]);
+      ray(m * 0.98, m * 0.2, 0); ray(m * 0.98, m * 0.2, Math.PI / 2);
+      ray(m * 0.46, m * 0.12, Math.PI / 4); ray(m * 0.46, m * 0.12, -Math.PI / 4);
+      radial(g, m, m * 0.2, [[0, 'rgba(255,255,255,1)'], [0.6, 'rgba(255,255,255,0.7)'], [1, 'rgba(255,255,255,0)']]);
       return cv;
     },
     /** thin luminous ring (shockwave) */
     ring(c) {
       const S = 256, cv = canvasOf(S), g = cv.getContext('2d'), m = S / 2;
-      radial(g, m, m, [[0, rgba(c, 0)], [0.6, rgba(c, 0)], [0.8, rgba(c, 0.22)], [0.9, rgba(mixRGB(c, WHITE, 0.55), 0.85)], [0.95, rgba(c, 0.3)], [1, rgba(c, 0)]]);
+      radial(g, m, m, [[0, rgba(c, 0)], [0.58, rgba(c, 0)], [0.8, rgba(c, 0.26)], [0.9, rgba(mixRGB(c, WHITE, 0.55), 0.95)], [0.95, rgba(c, 0.35)], [1, rgba(c, 0)]]);
       return cv;
     },
-    /** soft bokeh disc with a slightly brighter rim */
+    /** soft bokeh disc */
     bokeh(c) {
       const S = 128, cv = canvasOf(S), g = cv.getContext('2d'), m = S / 2;
-      radial(g, m, m, [[0, rgba(c, 0.5)], [0.72, rgba(c, 0.62)], [0.86, rgba(c, 0.85)], [0.93, rgba(c, 0.4)], [1, rgba(c, 0)]]);
-      return cv;
-    },
-    /** vertical light band (dissolve front) */
-    band(c) {
-      const W = 64, H = 256, cv = canvasOf(W, H), g = cv.getContext('2d');
-      const gx = g.createLinearGradient(0, 0, W, 0);
-      gx.addColorStop(0, rgba(c, 0)); gx.addColorStop(0.32, rgba(c, 0.28)); gx.addColorStop(0.5, rgba(mixRGB(c, WHITE, 0.7), 0.9));
-      gx.addColorStop(0.68, rgba(c, 0.28)); gx.addColorStop(1, rgba(c, 0));
-      g.fillStyle = gx; g.fillRect(0, 0, W, H);
-      g.globalCompositeOperation = 'destination-in';
-      const gy = g.createLinearGradient(0, 0, 0, H);
-      gy.addColorStop(0, 'rgba(0,0,0,0)'); gy.addColorStop(0.2, '#000'); gy.addColorStop(0.8, '#000'); gy.addColorStop(1, 'rgba(0,0,0,0)');
-      g.fillStyle = gy; g.fillRect(0, 0, W, H);
+      radial(g, m, m, [[0, rgba(c, 0.5)], [0.78, rgba(c, 0.58)], [0.9, rgba(c, 0.66)], [0.96, rgba(c, 0.3)], [1, rgba(c, 0)]]);
       return cv;
     },
   };
@@ -115,7 +107,7 @@
     return s;
   }
 
-  /** Confetti face shades (index 0 = edge-on/dark … 7 = face-on/lit); metallic pieces get a wider range. */
+  /** Paper/foil face shades (index 0 = edge-on/dark … 7 = face-on/lit); metallic pieces get a wider range. */
   const shadeCache = new Map();
   function shadesOf(color, metal) {
     const key = color + (metal ? '|m' : '');
@@ -160,23 +152,23 @@
     I: 1, It: 1, q: 1, ema: 16.7, slowMs: 0, fastMs: 0,
     mx: 0, my: 0, tmx: 0, tmy: 0,
   };
-  // depth layers: far (small, blurred, hazy) → near (big, crisp, soft shadow)
+  // depth layers: far (small, blurred, pre-saturated so it stays clean when translucent) → near (big, crisp, soft shadow)
   const LEVELS = [
-    { px: 76, blur: 2.4, haze: 0.26, shadow: 0 },
-    { px: 120, blur: 0.8, haze: 0.1, shadow: 0 },
-    { px: 192, blur: 0, haze: 0, shadow: 1 },
+    { px: 76, filter: 'blur(2.2px) saturate(1.5) brightness(1.1)', haze: 0.07, shadow: 0 },
+    { px: 120, filter: 'blur(0.7px) saturate(1.25) brightness(1.05)', haze: 0.03, shadow: 0 },
+    { px: 192, filter: '', haze: 0, shadow: 1 },
   ];
   const PAD = 1.36; // sprite canvas = cube size × PAD (room for blur + shadow)
 
   function rasterLevel(src, L) {
     const S = Math.ceil(L.px * PAD), cv = canvasOf(S), g = cv.getContext('2d'), o = (S - L.px) / 2;
-    if (L.blur && 'filter' in g) g.filter = `blur(${L.blur}px)`;
-    if (L.shadow) { g.shadowColor = 'rgba(2, 12, 45, 0.42)'; g.shadowBlur = L.px * 0.1; g.shadowOffsetY = L.px * 0.05; }
+    if (L.filter && 'filter' in g) g.filter = L.filter;
+    if (L.shadow) { g.shadowColor = 'rgba(2, 12, 45, 0.4)'; g.shadowBlur = L.px * 0.1; g.shadowOffsetY = L.px * 0.05; }
     g.drawImage(src, o, o, L.px, L.px);
     g.filter = 'none'; g.shadowColor = 'transparent';
-    if (L.haze) { // atmospheric perspective: tint toward the sky blue
+    if (L.haze) { // a breath of atmospheric perspective
       g.globalCompositeOperation = 'source-atop';
-      g.fillStyle = `rgba(52, 128, 214, ${L.haze})`; g.fillRect(0, 0, S, S);
+      g.fillStyle = `rgba(150, 205, 255, ${L.haze})`; g.fillRect(0, 0, S, S);
     }
     return cv;
   }
@@ -211,16 +203,17 @@
     });
   }
   /** sprites[colour][variant: 0 ornament | 1 letter][level] */
-  function buildSpriteSet(sources) {
-    return sources.map((pair) => pair.map((src) => LEVELS.map((L) => rasterLevel(src, L))));
-  }
+  const buildSpriteSet = (sources) => sources.map((pair) => pair.map((src) => LEVELS.map((L) => rasterLevel(src, L))));
+  const fallbackSet = (colors) => buildSpriteSet(colors.map((c) => { const s = fallbackCube(c); return [s, s]; }));
   let spriteJob = null, recheckTimers = [];
   function loadSprites() {
     const colors = emblemColors().slice(0, 6);
     const art = CH.art && typeof CH.art.bookCube === 'function';
     if (!art) {
-      if (!B.spr) B.spr = buildSpriteSet(colors.map((c) => { const s = fallbackCube(c); return [s, s]; }));
-      if (!recheckTimers.length) recheckTimers = [1200, 4000].map((ms) => setTimeout(() => { if (!B.artSpr && !spriteJob && CH.art && CH.art.bookCube) loadSprites(); }, ms));
+      if (!B.spr) B.spr = fallbackSet(colors);
+      if (!recheckTimers.length) {          // the art module may arrive late — look again
+        recheckTimers = [1200, 4000].map((ms) => setTimeout(() => { if (!B.artSpr && !spriteJob && CH.art && typeof CH.art.bookCube === 'function') loadSprites(); }, ms));
+      }
       return;
     }
     let jobs;
@@ -229,39 +222,32 @@
         svgImage(CH.art.bookCube(c, { size: LEVELS[2].px })),
         svgImage(CH.art.bookCube(c, { size: LEVELS[2].px, letter: CUBE_LETTERS[i] })),
       ]);
-    } catch (e) { console.error(e); CH.art.bookCube = null; return loadSprites(); }
+    } catch (e) { console.error(e); if (!B.spr) B.spr = fallbackSet(colors); return; }
     spriteJob = Promise.all(jobs.map((p) => Promise.all(p)))
       .then((imgs) => { B.spr = buildSpriteSet(imgs); B.artSpr = true; })
-      .catch(() => { if (!B.spr) B.spr = buildSpriteSet(colors.map((c) => { const s = fallbackCube(c); return [s, s]; })); })
+      .catch(() => { if (!B.spr) B.spr = fallbackSet(colors); })
       .then(() => { spriteJob = null; });
   }
 
-  function makeCube(i, n, lv, rank) {
+  function makeCube(i, n, lv, rank, col) {
     const z = (lv + Math.random()) / 3;
     return {
-      z, lv, rank,
-      col: i % 6, letter: Math.random() < 0.34 ? 1 : 0,
+      z, lv, rank, col, letter: Math.random() < 0.34 ? 1 : 0,
       size: lerp(30, 118, Math.pow(z, 1.12)) * rand(0.88, 1.12),          // css px @1080p
       speed: lerp(9, 40, z) * rand(0.85, 1.15),                           // css px/s @1080p
-      x: (((i * 7) % n) + Math.random()) / n, y: 0,
+      x: (((i * 7) % n) + Math.random()) / n, y: rand(-0.05, 1.08) * B.h,
       swA: rand(8, 22) * (0.5 + z), swF: rand(0.12, 0.32), ph: rand(0, TAU),
       r0: rand(-0.3, 0.3), rA: rand(0.06, 0.24), rF: rand(0.08, 0.22),
       spin: Math.random() < 0.22 ? rand(-0.22, 0.22) : 0,
-      a: lerp(0.34, 0.86, z), vis: 0,
+      a: lerp(0.5, 0.95, z), vis: 0,
     };
   }
   function buildScene() {
     const n = clamp(Math.round(30 * Math.sqrt((B.w * B.h) / (1920 * 1080))), 24, 36);
-    const ranks = (CH.u && CH.u.shuffle ? CH.u.shuffle : (a) => a)([...Array(n).keys()]);
-    const cols = (CH.u && CH.u.shuffle ? CH.u.shuffle : (a) => a)([...Array(n).keys()].map((i) => i % 6));
+    const ranks = shuffle([...Array(n).keys()]);
+    const cols = shuffle([...Array(n).keys()].map((i) => i % 6));
     B.cubes = [];
-    for (let i = 0; i < n; i++) {
-      const lv = i < n * 0.44 ? 0 : i < n * 0.78 ? 1 : 2;
-      const c = makeCube(i, n, lv, ranks[i]);
-      c.col = cols[i];
-      c.y = rand(-0.05, 1.08) * B.h;
-      B.cubes.push(c);
-    }
+    for (let i = 0; i < n; i++) B.cubes.push(makeCube(i, n, i < n * 0.44 ? 0 : i < n * 0.78 ? 1 : 2, ranks[i], cols[i]));
     B.cubes.sort((a, b) => a.z - b.z);
     B.motes = [];
     for (let i = 0; i < 54; i++) {
@@ -269,14 +255,13 @@
       B.motes.push({
         z, x: Math.random(), y: Math.random() * B.h,
         r: lerp(3, 14, z * z) * rand(0.8, 1.2), a: lerp(0.18, 0.55, z) * rand(0.7, 1),
-        img: Math.random() < 0.62 ? 'gold' : 'blue',
-        twF: rand(0.6, 2.2), ph: rand(0, TAU), speed: lerp(4, 18, z), swA: rand(6, 20), swF: rand(0.1, 0.35),
+        gold: Math.random() < 0.62, twF: rand(0.6, 2.2), ph: rand(0, TAU), speed: lerp(4, 18, z), swA: rand(6, 20), swF: rand(0.1, 0.35),
       });
     }
     B.discs = [];
     for (let i = 0; i < 8; i++) {
-      B.discs.push({ x: Math.random(), y: Math.random() * B.h, r: rand(50, 150), a: rand(0.035, 0.07), speed: rand(3, 8),
-        swA: rand(20, 60), swF: rand(0.04, 0.1), ph: rand(0, TAU), img: Math.random() < 0.5 ? 'gold' : 'blue' });
+      B.discs.push({ x: Math.random(), y: Math.random() * B.h, r: rand(50, 150), a: rand(0.03, 0.06), speed: rand(3, 8),
+        swA: rand(20, 60), swF: rand(0.04, 0.1), ph: rand(0, TAU), gold: Math.random() < 0.5 });
     }
   }
   function fitBg() {
@@ -288,11 +273,6 @@
     B.w = w; B.h = h; B.dpr = dpr;
     B.unit = clamp(Math.sqrt((w * h) / (1920 * 1080)), 0.45, 1.8);
     B.cv.width = Math.round(w * dpr); B.cv.height = Math.round(h * dpr);
-  }
-  function respawn(c, s) {
-    c.y = B.h + s * rand(0.6, 1.6);
-    c.x = Math.random();
-    c.letter = Math.random() < 0.34 ? 1 : 0;
   }
   /** Adaptive quality: drop cubes/motes and DPR if frames are slow; recover slowly. */
   function adapt(dtms) {
@@ -324,10 +304,11 @@
   }
   function drawBg(dt) {
     const ctx = B.ctx, dpr = B.dpr, w = B.w, h = B.h, u = B.unit, T = B.T, I = B.I;
-    const aMul = I <= 1 ? 0.3 + 0.7 * I : 1 + (I - 1) * 0.45;
+    const aMul = I <= 1 ? 0.3 + 0.7 * I : 1 + (I - 1) * 0.4;
     const vMul = (0.45 + 0.55 * I) * (reduced() ? 0.3 : 1);
     const active = Math.round(B.cubes.length * clamp(0.5 + 0.34 * I, 0.3, 1) * B.q);
     const kVis = 1 - Math.exp(-dt / 1.2);
+    const cx = w / 2, cy = h * 0.42, rx = w * 0.3, ry = h * 0.3;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     ctx.clearRect(0, 0, B.cv.width, B.cv.height);
@@ -342,7 +323,7 @@
       if (d.y < -r * 2) { d.y = h + r * 2; d.x = Math.random(); }
       const x = d.x * w + Math.sin(T * d.swF + d.ph) * d.swA * u - B.mx * 4 * u;
       ctx.globalAlpha = d.a * Math.min(aMul, 1.2) * smooth(-r, h * 0.3, d.y);
-      ctx.drawImage(d.img === 'gold' ? gB : bB, x - r, d.y - r, 2 * r, 2 * r);
+      ctx.drawImage(d.gold ? gB : bB, x - r, d.y - r, 2 * r, 2 * r);
     }
 
     // book-cubes, far → near
@@ -350,13 +331,16 @@
     for (const c of B.cubes) {
       const s = c.size * u;
       c.y -= c.speed * u * vMul * dt;
-      if (c.y < -s) respawn(c, s);
+      if (c.y < -s) { c.y = h + s * rand(0.6, 1.6); c.x = Math.random(); c.letter = Math.random() < 0.34 ? 1 : 0; }
       c.vis += ((c.rank < active ? 1 : 0) - c.vis) * kVis;
       if (!B.spr || c.vis < 0.005) continue;
-      const a = Math.min(1, c.a * aMul) * c.vis * smooth(-s * 0.6, h * 0.24, c.y);
-      if (a < 0.004) continue;
       const X = c.x * w + Math.sin(T * c.swF + c.ph) * c.swA * u - B.mx * (6 + 30 * c.z) * u;
       const Y = c.y - B.my * (3 + 14 * c.z) * u;
+      // calm zone: nearer cubes fade softly while they pass behind the centre (titles / question board)
+      const ex = (X - cx) / rx, ey = (Y - cy) / ry;
+      const calm = 1 - 0.62 * c.z * (1 - smooth(0.25, 1.5, ex * ex + ey * ey));
+      const a = Math.min(1, c.a * aMul) * c.vis * calm * smooth(-s * 0.6, h * 0.24, c.y);
+      if (a < 0.004) continue;
       const rot = c.r0 + Math.sin(T * c.rF + c.ph * 1.7) * c.rA + c.spin * T;
       const cr = Math.cos(rot) * dpr, sr = Math.sin(rot) * dpr, d = s * PAD;
       ctx.globalAlpha = a;
@@ -378,7 +362,7 @@
       if (a < 0.004) continue;
       const x = m.x * w + Math.sin(T * m.swF + m.ph) * m.swA * u - B.mx * (4 + 22 * m.z) * u;
       ctx.globalAlpha = Math.min(1, a);
-      ctx.drawImage(m.img === 'gold' ? gM : bM, x - r, m.y - B.my * 8 * m.z * u - r, 2 * r, 2 * r);
+      ctx.drawImage(m.gold ? gM : bM, x - r, m.y - B.my * 8 * m.z * u - r, 2 * r, 2 * r);
     }
     ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
   }
@@ -417,6 +401,7 @@
     buildScene();
     loadSprites();
     startBg();
+    setTimeout(() => { try { dissolveEdge(); } catch (e) { /* ignore */ } }, 2500); // warm the 50:50 mask off the critical path
   }
   /** 0 = off … 1 = normal … 1.5 = boosted; eased over ~1s. */
   function setBackgroundIntensity(x) {
@@ -426,7 +411,7 @@
 
   // ================================================================ OVERLAY
   const O = { cv: null, ctx: null, dpr: 1, vw: 0, vh: 0, raf: 0, last: 0, T: 0, ema: 16.7, wind: 0, pieces: [], sparks: [], ents: [] };
-  const MAX_PIECES = 1600, MAX_SPARKS = 3200;
+  const MAX_PIECES = 1600, MAX_SPARKS = 3600;
   const G = 980; // stage px/s²
 
   function overlay() {
@@ -499,7 +484,7 @@
       P[n++] = p;
     }
     P.length = n;
-    // glow particles: curl-noise turbulence, acceleration, drag
+    // light / dust / flakes: curl-noise turbulence, acceleration, drag
     const S = O.sparks;
     n = 0;
     for (let i = 0; i < S.length; i++) {
@@ -525,6 +510,35 @@
     E.length = n;
   }
 
+  /** Draw one spark (sprite, streak, rotated sprite or flake) at alpha a, size z. */
+  function drawSpark(ctx, s, img, a, z, S, ox, oy) {
+    ctx.globalAlpha = a > 1 ? 1 : a;
+    if (s.fill) {                                         // flake: tumbling chip of material
+      const c = Math.cos(s.rot), sn = Math.sin(s.rot), f = Math.cos(s.age * s.vf + s.seed);
+      ctx.setTransform(S * c * f, S * sn * f, -S * sn, S * c, S * s.x + ox, S * s.y + oy);
+      ctx.fillStyle = s.fill;
+      ctx.fillRect(-z / 2, -z * 0.35, z, z * 0.7);
+    } else if (s.streak) {
+      const sp = Math.hypot(s.vx, s.vy), len = z * (1 + sp * s.streak);
+      const c = sp ? s.vx / sp : 1, sn = sp ? s.vy / sp : 0;
+      ctx.setTransform(S * c, S * sn, -S * sn, S * c, S * s.x + ox, S * s.y + oy);
+      ctx.drawImage(img, -len * 0.75, -z / 2, len, z);
+    } else if (s.rot) {
+      const c = Math.cos(s.rot), sn = Math.sin(s.rot);
+      ctx.setTransform(S * c, S * sn, -S * sn, S * c, S * s.x + ox, S * s.y + oy);
+      ctx.drawImage(img, -z / 2, -z / 2, z, z);
+    } else {
+      ctx.setTransform(S, 0, 0, S, ox, oy);
+      ctx.drawImage(img, s.x - z / 2, s.y - z / 2, z, z);
+    }
+  }
+  function sparkAlpha(s) {
+    const t = s.age / s.life;
+    let a = s.a * (t < s.fin ? t / s.fin : 1) * Math.pow(1 - t, s.fo);
+    if (s.tw) a *= 0.55 + 0.45 * Math.sin(s.age * s.tw + s.seed);
+    return a;
+  }
+
   function render() {
     const ctx = O.ctx, v = view(), dpr = O.dpr;
     const S = v.s * dpr, ox = v.ox * dpr, oy = v.oy * dpr;
@@ -532,7 +546,7 @@
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, O.cv.width, O.cv.height);
 
-    // confetti (normal blending)
+    // 1) confetti (normal blending)
     const P = O.pieces;
     for (let i = 0; i < P.length; i++) {
       const p = P[i];
@@ -546,7 +560,7 @@
       const cr = Math.cos(p.rot), sr = Math.sin(p.rot);
       if (p.shape === 2) {                    // curly streamer
         ctx.setTransform(S * cr, S * sr, -S * sr, S * cr, S * p.x + ox, S * p.y + oy);
-        ctx.strokeStyle = p.shades[clamp(3 + ((Math.sin(p.curl) * 4) | 0), 0, 7)];
+        ctx.strokeStyle = p.shades[clamp(4 + ((Math.sin(p.curl) * 3.5) | 0), 0, 7)];
         ctx.lineWidth = p.h; ctx.lineCap = 'round';
         ctx.beginPath();
         for (let k = 0; k <= 10; k++) {
@@ -563,36 +577,30 @@
       } else ctx.fillRect(-p.w, -p.h, p.w * 2, p.h * 2);
     }
 
-    // light (additive)
+    // 2) normal-blended sparks (glint bodies, flakes)
+    const L = O.sparks;
+    for (let i = 0; i < L.length; i++) {
+      const s = L[i];
+      if (!s.nb || s.age < 0) continue;
+      const a = sparkAlpha(s);
+      if (a > 0.004) drawSpark(ctx, s, s.img, a, s.s0 + (s.s1 - s.s0) * (s.age / s.life), S, ox, oy);
+    }
+
+    // 3) light (additive): entities, glow sparks, blooms
     ctx.globalCompositeOperation = 'lighter';
     const E = O.ents;
     for (let i = 0; i < E.length; i++) E[i].draw(ctx, S, ox, oy);
-    const L = O.sparks;
-    let plain = false;
     for (let i = 0; i < L.length; i++) {
       const s = L[i];
-      if (s.age < 0) continue;
-      const t = s.age / s.life;
-      let a = s.a * (t < s.fin ? t / s.fin : 1) * Math.pow(1 - t, s.fo);
-      if (s.tw) a *= 0.5 + 0.5 * Math.sin(s.age * s.tw + s.seed);
+      if (s.age < 0 || (s.nb && !s.bloom)) continue;
+      const a = sparkAlpha(s);
       if (a < 0.004) continue;
-      const z = s.s0 + (s.s1 - s.s0) * t;
-      ctx.globalAlpha = a > 1 ? 1 : a;
-      if (s.streak) {
-        const sp = Math.hypot(s.vx, s.vy), len = z * (1 + sp * s.streak);
-        const c = sp ? s.vx / sp : 1, sn = sp ? s.vy / sp : 0;
-        ctx.setTransform(S * c, S * sn, -S * sn, S * c, S * s.x + ox, S * s.y + oy);
-        ctx.drawImage(s.img, -len * 0.75, -z / 2, len, z);
-        plain = false;
-      } else if (s.rot) {
-        const c = Math.cos(s.rot), sn = Math.sin(s.rot);
-        ctx.setTransform(S * c, S * sn, -S * sn, S * c, S * s.x + ox, S * s.y + oy);
-        ctx.drawImage(s.img, -z / 2, -z / 2, z, z);
-        plain = false;
-      } else {
-        if (!plain) { ctx.setTransform(S, 0, 0, S, ox, oy); plain = true; }
-        ctx.drawImage(s.img, s.x - z / 2, s.y - z / 2, z, z);
-      }
+      const z = s.s0 + (s.s1 - s.s0) * (s.age / s.life);
+      if (s.nb) {
+        ctx.globalAlpha = Math.min(1, a * 0.5); ctx.setTransform(S, 0, 0, S, ox, oy);
+        const zb = z * s.bloom;
+        ctx.drawImage(s.bloomImg, s.x - zb / 2, s.y - zb / 2, zb, zb);
+      } else drawSpark(ctx, s, s.img, a, z, S, ox, oy);
     }
     ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
   }
@@ -602,11 +610,17 @@
     if (O.sparks.length >= MAX_SPARKS) return null;
     const s = {
       img, x, y, vx, vy, ax: 0, ay: 0, drag: 0, turb: 0, age: 0, life, s0: size, s1: size * 0.3,
-      a: 1, fin: 0.04, fo: 1.6, tw: 0, rot: 0, vr: 0, streak: 0, seed: Math.random() * 100,
+      a: 1, fin: 0.04, fo: 1.6, tw: 0, rot: 0, vr: 0, vf: 0, streak: 0, seed: Math.random() * 100,
+      nb: false, bloom: 0, bloomImg: null, fill: null,
     };
     if (o) Object.assign(s, o);
     O.sparks.push(s);
     return s;
+  }
+  /** Gold glint: crisp normal-blend body + additive bloom. */
+  function addGlint(col, x, y, vx, vy, life, size, o) {
+    return addSpark(sprite('glint', col), x, y, vx, vy, life, size,
+      Object.assign({ nb: true, bloom: 1.5, bloomImg: sprite('glow', col), rot: rand(0, 0.8) || 0.01, vr: rand(-3, 3) }, o));
   }
   function makePiece(x, y, vx, vy, life) {
     if (O.pieces.length >= MAX_PIECES) return null;
@@ -621,14 +635,14 @@
       drag: rand(2.5, 3.5), wob: rand(25, 80), wobF: rand(2, 5), ph: rand(0, TAU), lift: rand(140, 340), windK: rand(0.6, 1.4),
       shape, shades: shadesOf(col, metal), w: 0, h: 0, curl: rand(0, TAU), vc: 0, amp: 0,
     };
-    if (shape === 0) { p.w = rand(5.2, 7); p.h = p.w * 1.732; }               // half-diagonals of a 60° rhombus
-    else if (shape === 1) { p.w = rand(5, 7.5); p.h = rand(2.8, 4.2); }      // half-sizes
-    else { p.w = rand(34, 56); p.h = rand(3.2, 4.2); p.amp = rand(4, 7); p.vc = rand(4, 8); p.drag *= 1.3; p.vr *= 0.5; p.vf = 0; p.lift = 0; }
+    if (shape === 0) { p.w = rand(6.4, 8.6); p.h = p.w * 1.732; }             // half-diagonals of a 60° rhombus
+    else if (shape === 1) { p.w = rand(6.5, 9.5); p.h = rand(3.6, 5.2); }      // half-sizes
+    else { p.w = rand(44, 70); p.h = rand(3.8, 5); p.amp = rand(5, 8); p.vc = rand(4, 8); p.drag *= 1.3; p.vr *= 0.5; p.vf = 0; p.lift = 0; }
     O.pieces.push(p);
     return p;
   }
 
-  // ---------------------------------------------------------------- entities (rings, flashes, rain, trails, sweeps)
+  // ---------------------------------------------------------------- entities (rings, flashes, rain, trails)
   function ringEnt(x, y, col, r0, r1, life, delay = 0, alpha = 1) {
     const img = sprite('ring', col);
     let age = -delay;
@@ -671,11 +685,11 @@
         step(dt) {
           age += dt;
           if (age > dur) return false;
-          acc += (total / dur) * dt;
+          acc += (total / dur) * dt * (age < 0.4 ? 1.8 : 0.9);  // opening gust, then steady
           const b = stageBounds();
           while (acc >= 1) {
             acc -= 1;
-            const p = makePiece(rand(b.left, b.right), b.top - rand(10, 70), rand(-40, 40), rand(60, 240), 30);
+            const p = makePiece(rand(b.left, b.right), b.top - rand(10, 90), rand(-40, 40), rand(60, 260), 30);
             if (p) { p.fade = 0.01; p.vf *= 0.8; }
           }
           return true;
@@ -688,17 +702,16 @@
     const n = Math.round((Number(o.count) || 160) * q), life = Math.max(0.6, o.duration / 1000);
     for (let i = 0; i < n; i++) {
       const ang = (o.angle + (Math.random() + Math.random() - 1) * o.spread * 0.5) * (Math.PI / 180);
-      const sp = o.power * 2150 * Math.pow(rand(0.12, 1), 0.55);
-      const p = makePiece(o.x + rand(-8, 8), o.y + rand(-8, 8), Math.cos(ang) * sp, Math.sin(ang) * sp, life * rand(0.72, 1.05));
+      const sp = o.power * 1700 * Math.pow(rand(0.12, 1), 0.5);
+      const p = makePiece(o.x + rand(-10, 10), o.y + rand(-10, 10), Math.cos(ang) * sp, Math.sin(ang) * sp, life * rand(0.72, 1.05));
       if (!p) break;
-      p.age = -Math.random() * 0.05;
+      p.age = -Math.random() * 0.06;
     }
     // muzzle pop: a soft flash + a few glints shooting along the cannon
-    O.ents.push(flashEnt(o.x, o.y, '#fff1c4', 260, 0.32, 0.8));
-    const gl = sprite('glint', GOLD);
-    for (let i = 0; i < 10 * q; i++) {
-      const ang = (o.angle + rand(-0.5, 0.5) * o.spread) * (Math.PI / 180), sp = rand(400, 1300) * o.power;
-      addSpark(gl, o.x, o.y, Math.cos(ang) * sp, Math.sin(ang) * sp, rand(0.4, 0.8), rand(14, 26), { drag: 3.2, ay: 500, vr: rand(-6, 6), rot: 0.01, tw: rand(16, 26) });
+    O.ents.push(flashEnt(o.x, o.y, '#fff1c4', 280, 0.32, 0.85));
+    for (let i = 0; i < 12 * q; i++) {
+      const ang = (o.angle + rand(-0.5, 0.5) * o.spread) * (Math.PI / 180), sp = rand(400, 1250) * o.power;
+      addGlint(GOLD, o.x, o.y, Math.cos(ang) * sp, Math.sin(ang) * sp, rand(0.45, 0.9), rand(20, 38), { drag: 3.2, ay: 500, tw: rand(14, 24) });
     }
     wake();
   }
@@ -708,34 +721,33 @@
     if (!overlay() || !Number.isFinite(x) || !Number.isFinite(y)) return;
     const o = Object.assign({ color: GOLD, count: 36, kind: 'sparkle' }, opts);
     const q = quality(), n = Math.max(4, Math.round((Number(o.count) || 36) * q)), col = o.color || GOLD;
-    const glint = sprite('glint', col), dot = sprite('dot', col), white = sprite('glint', '#fffaf0'), glow = sprite('glow', col);
+    const dot = sprite('dot', col), glow = sprite('glow', col);
     if (o.kind === 'ring') {
-      O.ents.push(flashEnt(x, y, col, 240, 0.3, 0.75));
-      O.ents.push(ringEnt(x, y, col, 26, 250, 0.75, 0, 0.95));
-      O.ents.push(ringEnt(x, y, '#fff6dc', 16, 160, 0.6, 0.08, 0.6));
+      O.ents.push(flashEnt(x, y, col, 260, 0.32, 0.8));
+      O.ents.push(ringEnt(x, y, col, 26, 260, 0.78, 0, 1));
+      O.ents.push(ringEnt(x, y, '#fff6dc', 16, 170, 0.62, 0.08, 0.65));
       for (let i = 0; i < n; i++) {
-        const a = (i / n) * TAU + rand(-0.08, 0.08), sp = rand(420, 620);
-        addSpark(i % 3 ? dot : glint, x + Math.cos(a) * 20, y + Math.sin(a) * 20, Math.cos(a) * sp, Math.sin(a) * sp, rand(0.5, 0.8), i % 3 ? rand(8, 13) : rand(18, 28),
-          { drag: 3.4, streak: i % 3 ? 0.006 : 0, rot: i % 3 ? 0 : 0.01, vr: rand(-4, 4), fo: 1.3 });
+        const a = (i / n) * TAU + rand(-0.08, 0.08), sp = rand(420, 640), cx = x + Math.cos(a) * 20, cy = y + Math.sin(a) * 20;
+        if (i % 3) addSpark(dot, cx, cy, Math.cos(a) * sp, Math.sin(a) * sp, rand(0.5, 0.8), rand(10, 15), { drag: 3.4, streak: 0.007, fo: 1.3 });
+        else addGlint(col, cx, cy, Math.cos(a) * sp, Math.sin(a) * sp, rand(0.55, 0.85), rand(24, 36), { drag: 3.4, fo: 1.3 });
       }
     } else if (o.kind === 'stars') {
-      O.ents.push(flashEnt(x, y, col, 200, 0.35, 0.7));
-      O.ents.push(ringEnt(x, y, col, 18, 140, 0.55, 0, 0.55));
+      O.ents.push(flashEnt(x, y, col, 240, 0.36, 0.8));
+      O.ents.push(ringEnt(x, y, col, 18, 150, 0.55, 0, 0.6));
       for (let i = 0; i < n; i++) {
-        const a = rand(0, TAU), sp = rand(140, 640);
-        const big = Math.random() < 0.55;
-        addSpark(big ? (Math.random() < 0.3 ? white : glint) : dot, x, y, Math.cos(a) * sp, Math.sin(a) * sp - rand(80, 240), rand(0.8, 1.5),
-          big ? rand(18, 40) : rand(6, 11), { drag: 2.4, ay: 520, rot: big ? rand(0, 1) : 0, vr: rand(-3, 3), tw: rand(10, 22), s1: big ? 6 : 2, fo: 1.1 });
+        const a = rand(0, TAU), sp = rand(160, 680), vx = Math.cos(a) * sp, vy = Math.sin(a) * sp - rand(80, 260);
+        if (Math.random() < 0.6) addGlint(Math.random() < 0.25 ? '#fff6e0' : col, x, y, vx, vy, rand(0.85, 1.5), rand(26, 52), { drag: 2.4, ay: 520, tw: rand(9, 18), s1: 8, fo: 1.1 });
+        else addSpark(dot, x, y, vx, vy, rand(0.7, 1.3), rand(8, 14), { drag: 2.4, ay: 520, tw: rand(12, 24), s1: 3, fo: 1.1 });
       }
     } else {
-      O.ents.push(flashEnt(x, y, col, 230, 0.26, 0.9));
-      O.ents.push(ringEnt(x, y, col, 14, 170, 0.5, 0, 0.75));
+      O.ents.push(flashEnt(x, y, col, 250, 0.28, 0.95));
+      O.ents.push(ringEnt(x, y, col, 14, 180, 0.5, 0, 0.8));
       for (let i = 0; i < n; i++) {
-        const a = rand(0, TAU), sp = rand(260, 980), streak = i % 5 < 3;
-        addSpark(streak ? dot : (i % 2 ? glint : white), x, y, Math.cos(a) * sp, Math.sin(a) * sp, rand(0.42, 0.9),
-          streak ? rand(7, 12) : rand(14, 30), { drag: 4.2, ay: 300, streak: streak ? 0.012 : 0, rot: streak ? 0 : rand(0, 1), vr: rand(-5, 5), tw: streak ? 0 : rand(18, 30) });
+        const a = rand(0, TAU), sp = rand(280, 1000), vx = Math.cos(a) * sp, vy = Math.sin(a) * sp;
+        if (i % 5 < 3) addSpark(dot, x, y, vx, vy, rand(0.42, 0.85), rand(9, 15), { drag: 4.2, ay: 300, streak: 0.013 });
+        else addGlint(i % 2 ? col : '#fff6e0', x, y, vx, vy, rand(0.5, 0.95), rand(22, 42), { drag: 4.2, ay: 300, tw: rand(16, 26) });
       }
-      for (let i = 0; i < 6; i++) addSpark(glow, x + rand(-30, 30), y + rand(-30, 30), rand(-60, 60), rand(-80, 20), rand(0.4, 0.7), rand(30, 60), { a: 0.35, drag: 2 });
+      for (let i = 0; i < 6; i++) addSpark(glow, x + rand(-30, 30), y + rand(-30, 30), rand(-60, 60), rand(-80, 20), rand(0.4, 0.7), rand(34, 64), { a: 0.35, drag: 2 });
     }
     wake();
   }
@@ -753,7 +765,7 @@
     return { x: u * u * p0.x + 2 * u * t * c.x + t * t * p1.x, y: u * u * p0.y + 2 * u * t * c.y + t * t * p1.y };
   }
 
-  /** Comet of gold sparkles along trailControl's curve; head follows ease-in-out-cubic (same as the "+N" label). */
+  /** Comet of gold sparkles along trailControl's curve; the head follows ease-in-out-cubic (same timing as the "+N" label). */
   function trail(from, to, opts = {}) {
     const o = Object.assign({ duration: 800, color: GOLD, ease: easeInOut3 }, opts);
     const dur = Math.max(0.05, (Number(o.duration) || 800) / 1000);
@@ -764,8 +776,8 @@
       if (!overlay() || !from || !to) return;
       const ease = typeof o.ease === 'function' ? o.ease : easeInOut3;
       const c = o.control || trailControl(from, to), col = o.color || GOLD;
-      const glow = sprite('glow', col), hot = sprite('glow', '#fff4d6'), glint = sprite('glint', col), white = sprite('glint', '#fffaf0'), dot = sprite('dot', col);
-      const TAIL = 0.2, M = 30, rate = 260 * quality();
+      const glow = sprite('glow', col), hot = sprite('glow', '#fff4d6'), glint = sprite('glint', col), dot = sprite('dot', col);
+      const TAIL = 0.24, M = 34, rate = 300 * quality();
       const pos = (tt) => bezierPoint(from, c, to, ease(clamp(tt, 0, 1)));
       let age = 0, acc = 0, prev = pos(0);
       O.ents.push({
@@ -774,14 +786,14 @@
           age += dt;
           const t = age / dur;
           if (t <= 1) {
-            const h = pos(t), vx = (h.x - prev.x) / (dt || 1 / 60), vy = (h.y - prev.y) / (dt || 1 / 60);
+            const h = pos(t), k = 1 / (dt || 1 / 60), vx = (h.x - prev.x) * k, vy = (h.y - prev.y) * k;
             acc += rate * dt;
             while (acc >= 1) {
               acc -= 1;
-              const f = Math.random(), x = prev.x + (h.x - prev.x) * f + rand(-7, 7), y = prev.y + (h.y - prev.y) * f + rand(-7, 7);
-              const g = Math.random() < 0.35;
-              addSpark(g ? (Math.random() < 0.3 ? white : glint) : dot, x, y, -vx * rand(0.02, 0.12) + rand(-50, 50), -vy * rand(0.02, 0.12) + rand(-50, 50), rand(0.35, 0.85),
-                g ? rand(12, 24) : rand(5, 10), { drag: 2.2, ay: 160, tw: rand(14, 30), rot: g ? rand(0, 1) : 0, vr: rand(-4, 4), s1: g ? 3 : 1.5 });
+              const f = Math.random(), x = prev.x + (h.x - prev.x) * f + rand(-9, 9), y = prev.y + (h.y - prev.y) * f + rand(-9, 9);
+              const svx = -vx * rand(0.02, 0.1) + rand(-60, 60), svy = -vy * rand(0.02, 0.1) + rand(-60, 60);
+              if (Math.random() < 0.3) addGlint(Math.random() < 0.3 ? '#fff6e0' : col, x, y, svx, svy, rand(0.4, 0.85), rand(16, 30), { drag: 2.2, ay: 180, tw: rand(14, 26), s1: 4 });
+              else addSpark(dot, x, y, svx, svy, rand(0.35, 0.8), rand(7, 13), { drag: 2.2, ay: 180, tw: rand(14, 30), s1: 2 });
             }
             prev = h;
           } else finish();
@@ -793,94 +805,127 @@
           for (let j = M; j >= 1; j--) {           // tail: earlier positions, tapering
             const tt = t - (j / M) * (TAIL / dur);
             if (tt < 0 || tt > 1) continue;
-            const p = pos(tt), f = 1 - j / M, z = 8 + 44 * Math.pow(f, 1.25);
-            ctx.globalAlpha = 0.5 * Math.pow(f, 1.5);
+            const p = pos(tt), f = 1 - j / M, z = 12 + 58 * Math.pow(f, 1.2);
+            ctx.globalAlpha = 0.62 * Math.pow(f, 1.3);
             ctx.drawImage(glow, p.x - z / 2, p.y - z / 2, z, z);
           }
           if (t > 1) return;
           const h = pos(t), pulse = 1 + 0.08 * Math.sin(age * 40);
-          let z = 110 * pulse;
-          ctx.globalAlpha = 0.9; ctx.drawImage(glow, h.x - z / 2, h.y - z / 2, z, z);
-          z = 46; ctx.globalAlpha = 1; ctx.drawImage(hot, h.x - z / 2, h.y - z / 2, z, z);
+          let z = 92 * pulse;
+          ctx.globalAlpha = 0.85; ctx.drawImage(glow, h.x - z / 2, h.y - z / 2, z, z);
+          z = 34; ctx.globalAlpha = 1; ctx.drawImage(hot, h.x - z / 2, h.y - z / 2, z, z);
           const r = age * 2.2, cr = Math.cos(r), sr = Math.sin(r);
-          z = 84 * pulse;
+          z = 70 * pulse;
           ctx.setTransform(S * cr, S * sr, -S * sr, S * cr, S * h.x + ox, S * h.y + oy);
-          ctx.drawImage(glint, -z / 2, -z / 2, z, z);
+          ctx.globalAlpha = 0.9; ctx.drawImage(glint, -z / 2, -z / 2, z, z);
         },
       });
       wake();
     });
   }
 
-  /** 50:50 — the element blows away right→left into glowing dust. Resolves when gone (element left visibility:hidden). */
+  // ---------------------------------------------------------------- 50:50 dissolve
+  /** Shared crumbling-edge mask: alpha = noise > x (x: 0 opaque side → 1 transparent side), soft-thresholded. */
+  let edgeTex = null;
+  function dissolveEdge() {
+    if (edgeTex) return edgeTex;
+    const w = 208, h = 216, cv = canvasOf(w, h), g = cv.getContext('2d'), img = g.createImageData(w, h), n = new Float32Array(w * h);
+    const lattice = (gw, gh) => { const a = new Float32Array((gw + 1) * (gh + 1)); for (let i = 0; i < a.length; i++) a[i] = Math.random(); return { a, gw, gh }; };
+    const sample = (L, x, y) => {
+      const fx = (x / w) * L.gw, fy = (y / h) * L.gh, ix = Math.min(L.gw - 1, fx | 0), iy = Math.min(L.gh - 1, fy | 0);
+      let tx = fx - ix, ty = fy - iy; tx = tx * tx * (3 - 2 * tx); ty = ty * ty * (3 - 2 * ty);
+      const i = iy * (L.gw + 1) + ix, a = L.a;
+      return lerp(lerp(a[i], a[i + 1], tx), lerp(a[i + L.gw + 1], a[i + L.gw + 2], tx), ty);
+    };
+    const L1 = lattice(6, 7), L2 = lattice(16, 18), L3 = lattice(44, 46);
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const i = y * w + x;
+        let v = 0.5 * sample(L1, x, y) + 0.26 * sample(L2, x, y) + 0.14 * sample(L3, x, y) + 0.1 * Math.random();
+        v = clamp((v - 0.5) * 1.9 + 0.5, 0, 1);
+        n[i] = v;
+        const f = ((x + 0.5) / w) * 1.24 - 0.12;               // margins: fully opaque at x=0, fully clear at x=w
+        img.data[i * 4 + 3] = clamp((v - f) * 7 + 0.5, 0, 1) * 255;
+      }
+    }
+    g.putImageData(img, 0, 0);
+    edgeTex = { url: cv.toDataURL('image/png'), w, h, n };
+    return edgeTex;
+  }
+
+  /** 50:50 — the element crumbles right→left into glowing dust and glass flakes, blown by a gentle wind.
+   *  Resolves when gone (~900ms) and leaves the element with visibility:hidden. */
   function dissolve(el, opts = {}) {
     if (!el || !el.isConnected) return Promise.resolve();
-    const o = Object.assign({ colors: DUST, duration: 880, count: 440 }, opts);
+    const o = Object.assign({ colors: DUST, flakes: GLASS_FLAKES, duration: 900, count: 520 }, opts);
     const colors = Array.isArray(o.colors) && o.colors.length ? o.colors : DUST;
-    const D = reduced() ? 380 : Math.max(200, Number(o.duration) || 880);
+    const flakes = Array.isArray(o.flakes) && o.flakes.length ? o.flakes : GLASS_FLAKES;
+    const D = reduced() ? 400 : Math.max(240, Number(o.duration) || 900);
     const r = stageRect(el);
     const W = el.offsetWidth || r.w, H = el.offsetHeight || r.h;
-    const M = 150, Sz = Math.max(140, W * 0.42), span = W + 2 * M;       // mask: opaque | soft edge Sz | transparent
+    const M = 150, Sz = clamp(W * 0.5, 160, 520), span = W + 2 * M, travel = span + Sz, x0 = -M;
     const st = el.style;
     const pfx = 'maskImage' in st ? 'mask' : 'webkitMaskImage' in st ? 'webkitMask' : null;
     const props = ['Image', 'Size', 'Repeat', 'Position', 'Clip', 'Origin'].map((k) => pfx + k);
     const saved = pfx ? props.map((p) => st[p]) : [];
-    const x0 = -M, x1 = -M - span - Sz;
+    const tex = dissolveEdge();
+    // two mask layers moving together: solid block | crumbling edge (everything else transparent)
+    const pos = (f) => { const p = x0 - travel * f; return `${p.toFixed(1)}px ${-M}px, ${(p + span).toFixed(1)}px ${-M}px`; };
     let anim = null;
     if (pfx) {
-      st[pfx + 'Image'] = `linear-gradient(90deg, #000 0px, #000 ${span}px, transparent ${span + Sz}px, transparent ${2 * span + Sz}px)`;
-      st[pfx + 'Size'] = `${2 * span + Sz}px ${H + 2 * M}px`;
+      st[pfx + 'Image'] = `linear-gradient(#000, #000), url("${tex.url}")`;
+      st[pfx + 'Size'] = `${span}px ${H + 2 * M}px, ${Sz}px ${H + 2 * M}px`;
       st[pfx + 'Repeat'] = 'no-repeat';
       st[pfx + 'Origin'] = 'border-box';
-      st[pfx + 'Clip'] = 'no-clip';                     // keep the box-shadow until the front reaches it
-      st[pfx + 'Position'] = `${x0}px ${-M}px`;
+      st[pfx + 'Clip'] = 'no-clip';                     // keeps the box-shadow until the edge reaches it
+      st[pfx + 'Position'] = pos(0);
     }
     if (el.animate) {
-      const P = (f) => ({ [pfx + 'Position']: `${(x0 + (x1 - x0) * f).toFixed(1)}px ${-M}px` });
       const kf = pfx ? [
-        { ...P(0), filter: 'brightness(1) saturate(1) blur(0px)', opacity: 1 },
-        { ...P(0.25), filter: 'brightness(1.3) saturate(1.1) blur(0px)', opacity: 1, offset: 0.25 },
-        { ...P(1), filter: 'brightness(1.9) saturate(0.8) blur(3px)', opacity: 0.8 },
+        { [pfx + 'Position']: pos(0), filter: 'brightness(1) saturate(1)' },
+        { [pfx + 'Position']: pos(0.3), filter: 'brightness(1.14) saturate(1.08)', offset: 0.3 },
+        { [pfx + 'Position']: pos(1), filter: 'brightness(1.28) saturate(1.1)' },
       ] : [{ opacity: 1, filter: 'blur(0px)' }, { opacity: 0, filter: 'blur(10px)' }];
       try { anim = el.animate(kf, { duration: D, easing: 'linear', fill: 'forwards' }); } catch (e) { anim = null; }
     }
 
-    // dust: each grain appears when the soft front (mask midpoint) passes its x
+    // particles: each grain is released exactly when the crumbling edge clears its pixel
     if (overlay()) {
-      const q = quality(), n = Math.round((Number(o.count) || 440) * q);
-      const kx = r.w / W, rad = Math.min(28, r.h / 2);
-      const travel = span + Sz, edge0 = W + M + Sz / 2;            // front position (element px) at t=0, distance travelled
-      const imgs = colors.map((c) => [sprite('dot', c), sprite('glow', c), sprite('glint', c)]);
+      const q = quality(), n = Math.round((Number(o.count) || 520) * q), kx = r.w / W, ky = r.h / H, rad = Math.min(28, H / 2);
+      const accents = [...el.querySelectorAll('.letter')].map((c) => { const b = stageRect(c); return { x: b.cx, y: b.cy, r: Math.min(b.w, b.h) / 2 }; });
+      const dSec = D / 1000;
       for (let i = 0; i < n; i++) {
-        let u = Math.random(), v = Math.random();
-        const px = u * r.w, py = v * r.h;                        // reject points outside the rounded corners
-        const cx = clamp(px, rad, r.w - rad), cy = clamp(py, rad, r.h - rad);
-        if ((px - cx) ** 2 + (py - cy) ** 2 > rad * rad) { u = 0.5 + (u - 0.5) * 0.9; v = 0.5 + (v - 0.5) * 0.7; }
-        const delay = ((edge0 - u * W) / travel) * (D / 1000) + rand(-0.03, 0.05);
-        const set = imgs[(Math.random() * imgs.length) | 0], k = Math.random();
-        const kind = k < 0.78 ? 0 : k < 0.9 ? 1 : 2;
-        const s = addSpark(set[kind], r.x + u * r.w, r.y + v * r.h, rand(-240, -40), rand(-120, 20), rand(0.55, 1.2),
-          kind === 0 ? rand(4, 10) : kind === 1 ? rand(16, 30) : rand(10, 20),
-          { ax: -260, ay: -70, drag: 1.1, turb: rand(320, 720), a: kind === 1 ? 0.32 : 0.95, fin: 0.12, fo: 1.3,
-            s1: kind === 1 ? 6 : 1.5, tw: kind === 2 ? rand(16, 28) : 0, rot: kind === 2 ? rand(0, 1) : 0, vr: kind === 2 ? rand(-4, 4) : 0 });
+        let px = 0, py = 0;
+        for (let tries = 0; tries < 6; tries++) {             // uniform inside the rounded box
+          px = Math.random() * W; py = Math.random() * H;
+          const cx = clamp(px, rad, W - rad), cy = clamp(py, rad, H - rad);
+          if ((px - cx) ** 2 + (py - cy) ** 2 <= rad * rad) break;
+        }
+        const ty = Math.min(tex.h - 1, (((py + M) / (H + 2 * M)) * tex.h) | 0);
+        let tx = 0;                                           // first texel (moving with the mask) that turns clear here
+        for (; tx < tex.w; tx++) if (tex.n[ty * tex.w + tx] < ((tx + 0.5) / tex.w) * 1.24 - 0.12) break;
+        const L = px - ((tx + 0.5) / tex.w) * Sz;             // edge-layer left position at release
+        const delay = ((x0 + span - L) / travel) * dSec;
+        const sx = r.x + px * kx, sy = r.y + py * ky;
+        const acc = accents.find((a) => (sx - a.x) ** 2 + (sy - a.y) ** 2 < a.r * a.r);
+        const k = Math.random();
+        const wind = { ax: -280, ay: -70, drag: 1.1, turb: rand(320, 720), fin: 0.03, fo: 1.25 };
+        let s;
+        if (k < 0.3) {          // tumbling chip of the box itself
+          s = addSpark(null, sx, sy, rand(-200, -30), rand(-90, 30), rand(0.6, 1.2), rand(4, 8.5),
+            Object.assign({}, wind, { nb: true, fill: pick(acc ? GOLD_FLAKES : flakes), a: 0.95, s1: 1.5, rot: rand(0.01, 3), vr: rand(-9, 9), vf: rand(8, 16), ay: -20, turb: wind.turb * 0.6 }));
+        } else if (k < 0.9) {   // glowing dust
+          s = addSpark(sprite('dot', acc ? pick(GOLD_FLAKES) : pick(colors)), sx, sy, rand(-240, -40), rand(-120, 20), rand(0.55, 1.2), rand(6, 13),
+            Object.assign({}, wind, { a: 0.95, s1: 2 }));
+        } else if (k < 0.96) {  // soft puff
+          s = addSpark(sprite('glow', pick(colors)), sx, sy, rand(-160, -30), rand(-80, 10), rand(0.45, 0.85), rand(22, 40),
+            Object.assign({}, wind, { a: 0.3, s1: 8 }));
+        } else {                // glint
+          s = addGlint(pick(colors), sx, sy, rand(-200, -40), rand(-120, 10), rand(0.5, 1), rand(14, 26), Object.assign({}, wind, { tw: rand(16, 28), s1: 4 }));
+        }
         if (!s) break;
         s.age = -delay;
       }
-      // luminous front sweeping across the box
-      const band = sprite('band', '#ffe2a0');
-      let age = 0;
-      O.ents.push({
-        step(dt) { age += dt; return age < D / 1000; },
-        draw(ctx, S, ox, oy) {
-          const t = age / (D / 1000), ex = r.x + (edge0 - travel * t) * kx;
-          const a = 0.6 * smooth(r.x - 40, r.x + 50, ex) * (1 - smooth(r.x + r.w - 50, r.x + r.w + 40, ex));
-          if (a < 0.01) return;
-          const bw = Sz * kx * 0.55, bh = r.h * 1.3;
-          ctx.globalAlpha = a * (0.85 + 0.15 * Math.sin(age * 37));
-          ctx.setTransform(S, 0, 0, S, ox, oy);
-          ctx.drawImage(band, ex - bw / 2, r.cy - bh / 2, bw, bh);
-        },
-      });
       wake();
     }
 

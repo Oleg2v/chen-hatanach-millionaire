@@ -49,6 +49,13 @@
   const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
   const nf = (n) => Number(n || 0).toLocaleString('he-IL');
   const qCount = (n) => (n === 1 ? 'שאלה אחת' : `${nf(n)} שאלות`);
+  const rowsTxt = (n) => (n === 1 ? 'שורה אחת' : `${nf(n)} שורות`);
+  /** "בדיקה-20.xlsx" stays readable in RTL: the Latin extension is isolated at the end. */
+  const fileLabel = (name) => {
+    const m = String(name || '').match(/^(.*?)(\.[a-z0-9]{1,5})$/i);
+    return h('bdi.fname', { dir: 'rtl' }, m ? m[1] : String(name || ''), m ? h('bdi', { dir: 'ltr' }, m[2]) : null);
+  };
+  const sizeTxt = (b) => (b < 1024 * 1024 ? `${nf(Math.max(0.1, b / 1024).toFixed(b < 10240 ? 1 : 0))} ק״ב` : `${(b / 1048576).toFixed(1)} מ״ב`);
   const okCount = (n) => (n === 1 ? 'שאלה אחת תקינה' : `${nf(n)} שאלות תקינות`);
   const valid = (q) => !S().validateQuestion(q).length;
   const fileSafe = (s) => String(s || 'questions').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim() || 'questions';
@@ -650,7 +657,7 @@
     const list = h('div.set-list', { role: 'tablist', 'aria-label': 'אוספי שאלות' }, sets.map((s, i) => {
       const it = h('button.set-item' + (s.id === set.id ? '.is-sel' : ''), { type: 'button', role: 'tab', 'aria-selected': String(s.id === set.id), onclick: () => selectSet(s.id) },
         h('span.set-gem', { style: { '--c': EMBLEM[i % EMBLEM.length] } }),
-        h('span.set-txt', h('span.set-name', s.name), h('span.set-sub', s.id === activeId ? h('span.set-live', h('i'), 'פעיל במשחק') : 'אוסף שאלות')),
+        h('span.set-txt', h('span.set-name', s.name), h('span.set-sub', s.id === activeId ? h('span.set-live', h('i'), 'פעיל במשחק') : 'עודכן ' + ago(s.updatedAt))),
         h('span.set-count', nf(s.questions.length)));
       r.setItems[s.id] = it;
       return it;
@@ -688,7 +695,6 @@
     const toolbar = h('div.q-toolbar',
       h('label.q-search', ic('search'), search),
       r.filterBad, r.found, h('span.q-spacer'),
-      h('span.q-hint', h('kbd', 'Enter'), ' לשורה הבאה · הדבקה מ־Excel ממלאת כמה עמודות'),
       btn('הוספת שאלה', { kind: 'primary', icon: 'plus', onclick: () => addRow() }));
 
     // --- table ---
@@ -708,7 +714,8 @@
     r.tableWrap = h('div.qt-card', table, r.empty, r.nores, h('button.qt-add', { type: 'button', onclick: () => addRow() }, ic('plus'), 'שאלה חדשה'));
 
     updateCounts();
-    return h('section.adm-page.is-wide', h('div.qs', side, h('div.qs-main', head, toolbar, r.tableWrap)));
+    const tip = h('p.q-tip', ic('info'), h('span', h('kbd', 'Enter'), ' עובר לשורה הבאה · ', h('kbd', 'Tab'), ' לתא הבא · אפשר להדביק כמה שורות ועמודות ישירות מ־Excel · ניקוד נשמר, טעמים מוסרים בהדבקה'));
+    return h('section.adm-page.is-wide', h('div.qs', side, h('div.qs-main', head, toolbar, r.tableWrap, tip)));
   }
 
   function bindTable(tbody) {
@@ -865,7 +872,7 @@
   async function deleteSet() {
     const s = S().getSet(Q.setId); if (!s || S().getSets().length <= 1) return;
     const ok = await ui('confirm', `מחיקת האוסף «${s.name}»`,
-      `${qCount(s.questions.length)} יימחקו לצמיתות. ${s.id === S().activeSetId() ? 'זה האוסף הפעיל — אוסף אחר יופעל במקומו. ' : ''}מומלץ לייצא קודם לקובץ JSON.`,
+      (s.questions.length ? `${qCount(s.questions.length)} יימחקו לצמיתות. ` : 'האוסף ריק. ') + (s.id === S().activeSetId() ? 'זה האוסף הפעיל — אוסף אחר יופעל במקומו. ' : '') + (s.questions.length ? 'מומלץ לייצא קודם לקובץ JSON.' : ''),
       { ok: 'מחיקת האוסף', danger: true });
     if (!ok) return;
     leaveQuestions();
@@ -1041,7 +1048,7 @@
       const wait = 450 - (performance.now() - t0); if (wait > 0) await U.sleep(wait);    // let the parse animation read
       if (!res.sheets.length) throw new Error('לא נמצאו שאלות בקובץ. ודאו שהעמודות לפי התבנית: ' + HEAD.join(' · '));
       Object.assign(IM, { state: 'preview', kind: res.kind, sheets: res.sheets, sheet: 0, newName: res.name, target: 'add' });
-      if (!IM.setId || !S().getSet(IM.setId)) IM.setId = (selSetId && S().getSet(selSetId)) ? selSetId : S().activeSetId();
+      IM.setId = selSetId && S().getSet(selSetId) ? selSetId : S().activeSetId();     // default: the set selected in "מאגרי שאלות"
       buildPreviewRows();
       paintWorkspace();
     }).catch((e) => {
@@ -1111,8 +1118,8 @@
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); input.click(); } } },
     h('div.dz-art', { 'aria-hidden': 'true' },
       h('div.dz-file.f-json', h('b', 'JSON')), h('div.dz-file.f-csv', h('b', 'CSV')), h('div.dz-file.f-xlsx', h('b', 'XLSX')),
-      h('div.dz-orb', { html: parsing ? '<span class="dz-spin"></span>' : I.upload })),
-    parsing ? h('div.dz-title', 'קורא את ', h('bdi', IM.file ? IM.file.name : 'הקובץ'), '…')
+      h('div.dz-orb', { html: parsing ? '<span class="dz-spin"></span>' : err ? I.warn : I.upload })),
+    parsing ? h('div.dz-title', 'קורא את ', IM.file ? fileLabel(IM.file.name) : 'הקובץ', '…')
       : err ? h('div.dz-title.err', ic('warn'), IM.error)
         : h('div.dz-title', 'גררו לכאן קובץ שאלות'),
     h('div.dz-sub', parsing ? 'בודק כל שורה ושורה' : err ? h('span', h('u', 'לחצו לבחירת קובץ אחר'), ' או גררו קובץ לכאן') : h('span', 'או ', h('u', 'לחצו לבחירת קובץ'), ' מהמחשב')),
@@ -1137,8 +1144,8 @@
 
     const head = h('div.pv-head',
       h('div.pv-file.k-' + (IM.kind || 'xlsx'), { html: I[kindIcon] }),
-      h('div.pv-file-txt', h('div.pv-name', h('bdi', IM.file ? IM.file.name : '')),
-        h('div.pv-meta', `${nf(IM.rows.length)} שורות`, IM.kind === 'xlsx' ? ` · גיליון «${sheet.name}»` : '', IM.file && IM.file.size ? ` · ${(IM.file.size / 1024).toFixed(IM.file.size < 10240 ? 1 : 0)} KB` : '')),
+      h('div.pv-file-txt', h('div.pv-name', fileLabel(IM.file ? IM.file.name : '')),
+        h('div.pv-meta', rowsTxt(IM.rows.length), IM.kind === 'xlsx' ? ` · גיליון «${sheet.name}»` : '', IM.file && IM.file.size ? ` · ${sizeTxt(IM.file.size)}` : '')),
       h('div.pv-sum', h('span.pill.ok', ic('check'), `${nf(ok.length)} תקינות`), bad ? h('span.pill.bad', ic('warn'), `${nf(bad)} יוחרגו`) : null),
       btn('', { kind: 'ghost', icon: 'close', title: 'ביטול הייבוא', onclick: () => { IM.state = 'idle'; paintWorkspace(); } }));
 
@@ -1185,7 +1192,7 @@
 
     const go = btn(ok.length ? `טעינת ${qCount(ok.length)}` : 'אין שאלות תקינות לטעינה', { kind: 'primary', size: 'lg', icon: 'check', disabled: !ok.length, onclick: () => commitImport(ok.map((r) => r.q)) });
     const foot = h('div.pv-foot',
-      h('div.pv-foot-txt', bad ? h('span', ic('info'), `${nf(bad)} שורות עם שגיאות לא ייטענו. אפשר לתקן אותן בקובץ ולטעון שוב.`) : h('span', ic('check'), 'כל השורות תקינות ומוכנות לטעינה.')),
+      h('div.pv-foot-txt', bad ? h('span', ic('info'), bad === 1 ? 'שורה אחת עם שגיאה לא תיטען. אפשר לתקן אותה בקובץ ולטעון שוב.' : `${nf(bad)} שורות עם שגיאות לא ייטענו. אפשר לתקן אותן בקובץ ולטעון שוב.`) : h('span', ic('check'), 'כל השורות תקינות ומוכנות לטעינה.')),
       btn('ביטול', { kind: 'ghost', onclick: () => { IM.state = 'idle'; paintWorkspace(); } }), go);
 
     return h('div.a-card.pv', head, sheetsBar, h('div.pv-section-lbl', 'לאן לטעון?'), target, table, more, foot);
@@ -1220,7 +1227,8 @@
       : btn('הפיכה לאוסף הפעיל', { kind: 'primary', icon: 'play', onclick: () => { S().setActive(r.setId); markSaved(); toast(`«${s.name}» הוא עכשיו האוסף הפעיל`, 'ok'); paintWorkspace(true); } });
     return h('div.a-card.done',
       h('div.done-check', { html: '<svg viewBox="0 0 120 120" aria-hidden="true"><circle class="dc-ring" cx="60" cy="60" r="50"/><path class="dc-tick" d="M38 61l15 15 30-32"/></svg>' },
-        h('span.done-burst')),
+        h('span.done-burst'),
+        h('span.done-gems', { 'aria-hidden': 'true' }, Array.from({ length: 14 }, (_, i) => h('i', { style: { '--a': `${(i / 14) * 360 + (i % 2) * 9}deg`, '--d': `${70 + (i % 3) * 16}px`, '--c': EMBLEM[i % EMBLEM.length], '--t': `${(i % 4) * 40}ms` } })))),
       h('h2.done-title', `נטענו ${qCount(r.count)}`),
       h('p.done-sub', r.mode === 'new' ? 'לאוסף חדש: ' : r.mode === 'replace' ? 'השאלות הוחלפו באוסף ' : 'נוספו לאוסף ', h('b', `«${s ? s.name : r.name}»`),
         s ? ` · סה״כ ${qCount(s.questions.length)} באוסף` : ''),

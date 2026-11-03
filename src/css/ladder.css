@@ -84,15 +84,16 @@
 .ladder .peg::after {                    /* gold-lacquered state */
   content: ''; position: absolute; inset: 0; border-radius: inherit; opacity: 0; transition: opacity 600ms var(--ease-out, ease-out);
   background: linear-gradient(180deg, #fff6d6 0%, #ffd56a 35%, #e19a2a 70%, #9a6212 100%);
-  box-shadow: 0 0 10px rgba(255, 210, 100, 0.9);
+  box-shadow: 0 0 6px rgba(255, 210, 100, 0.55);
 }
 .ladder .lad-rung.is-done .peg::after { opacity: 1; }
 .ladder .lad-rung .glow {
-  height: 54px; transform: translate(-50%, -50%); border-radius: 50%; opacity: 0;
-  background: radial-gradient(ellipse at 50% 50%, rgba(255, 214, 110, 0.55) 0%, rgba(255, 190, 70, 0.18) 45%, rgba(255, 190, 70, 0) 70%);
+  transform: translate(-50%, -50%); border-radius: 50%; opacity: 0;
+  background: radial-gradient(circle, rgba(255, 220, 120, 0.6) 0%, rgba(255, 190, 70, 0.22) 40%, rgba(255, 190, 70, 0) 70%);
   transition: opacity 700ms var(--ease-out, ease-out);
 }
-.ladder .lad-rung.is-done .glow { opacity: 1; }
+.ladder .lad-rung.is-done .glow { opacity: 0.55; }
+.ladder[data-dense] .lad-rung.is-done .glow { opacity: 0.3; }
 .ladder .lad-rung.is-next .glow { opacity: 1; animation: lad-pulse-o 1.8s ease-in-out infinite; }
 
 .ladder .badge {

@@ -50,31 +50,18 @@
     const tip = c[n - 1];
     return smooth(L.concat([tip], R.reverse()), true);
   }
-  /** Leafy foliage clump: scalloped blob. */
-  function blob(x, y, r, rnd, bump = 7) {
-    const m = Math.max(7, Math.round((2 * Math.PI * r) / (bump * 2.3)));
-    const a0 = rnd() * Math.PI * 2, step = (2 * Math.PI) / m, pts = [];
-    for (let j = 0; j < m; j++) {
-      const a = a0 + (j + (rnd() - 0.5) * 0.3) * step, rr = r * (0.88 + rnd() * 0.08);
-      pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr, a, rr]);
-    }
-    let d = `M${f1(pts[0][0])} ${f1(pts[0][1])}`;
-    for (let j = 0; j < m; j++) {
-      const p = pts[j], q = pts[(j + 1) % m], a = a0 + (j + 0.5) * step, ro = Math.max(p[3], q[3]) * (1.1 + rnd() * 0.07);
-      d += `Q${f1(x + Math.cos(a) * ro)} ${f1(y + Math.sin(a) * ro)} ${f1(q[0])} ${f1(q[1])}`;
-    }
-    return d + 'Z';
-  }
-
   // ================================================================ tree geometry
-  const tcx = (y) => { const t = (y - 260) / 600; return 176 - 13 * Math.sin(t * Math.PI * 1.1) + 6 * t; };   // trunk centre
-  const thw = (y) => { const t = clamp((y - 260) / 600, 0, 1); return 20 + 13 * t + 30 * Math.pow(Math.max(0, (y - 772) / 80), 2); };
+  const tcx = (y) => { const t = (y - 260) / 600; return 178 - 17 * Math.sin(t * Math.PI * 1.1) + 8 * t; };   // trunk centre
+  const thw = (y) => {                                                                                         // trunk half-width
+    const t = clamp((y - 260) / 600, 0, 1);
+    return 23 + 13 * t + 2.2 * Math.sin(y / 31) + 30 * Math.pow(Math.max(0, (y - 776) / 78), 2);
+  };
   const rungY = (i, n) => (n === 1 ? (G + TOP) / 2 + 20 : G - ((G - TOP) * i) / n);
   /** Where the sage's feet are at level k. */
   function feetAt(k, n) {
-    if (k <= 0) return { x: 252, y: G };
+    if (k <= 0) return { x: 246, y: G };
     const y = rungY(Math.min(k, n), n);
-    return { x: tcx(y + 5) + thw(y + 5) + 17, y };
+    return { x: tcx(y + 5) + thw(y + 5) + 9, y };
   }
 
   // ---------------------------------------------------------------- trunk, roots, mound (static, cached)
@@ -83,95 +70,88 @@
     if (TREE) return TREE;
     const rnd = rng(1948);
     let defs = '', s = '';
-    defs += '<linearGradient id="@bark" gradientUnits="userSpaceOnUse" x1="128" y1="0" x2="232" y2="0">' +
-      '<stop offset="0" stop-color="#c79a6c"/><stop offset=".16" stop-color="#9c7049"/><stop offset=".45" stop-color="#76513a"/>' +
-      '<stop offset=".78" stop-color="#4b3123"/><stop offset=".93" stop-color="#3a2a26"/><stop offset="1" stop-color="#5d6f8f"/></linearGradient>';
-    defs += '<linearGradient id="@shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#140b06" stop-opacity=".75"/>' +
-      '<stop offset=".55" stop-color="#140b06" stop-opacity=".18"/><stop offset="1" stop-color="#140b06" stop-opacity="0"/></linearGradient>';
-    defs += '<linearGradient id="@mound" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fbf4f"/><stop offset=".18" stop-color="#3f9343"/>' +
-      '<stop offset=".55" stop-color="#22663a"/><stop offset="1" stop-color="#103a2a"/></linearGradient>';
+    const lg = (id, x1, y1, x2, y2, stops, user) => `<linearGradient id="@${id}"${user ? ' gradientUnits="userSpaceOnUse"' : ''} x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">` +
+      stops.map(([o, c, op]) => `<stop offset="${o}" stop-color="${c}"${op != null ? ` stop-opacity="${op}"` : ''}/>`).join('') + '</linearGradient>';
+    const BARK = [[0, '#cfa173'], [0.16, '#a67852'], [0.44, '#7a543b'], [0.76, '#4e3426'], [1, '#3a2822']];
+    defs += lg('bark', 116, 0, 246, 0, BARK, true);
+    defs += lg('root', 0, 0, 1, 0, [[0, '#b88a5e'], [0.5, '#7a543b'], [1, '#4a3124']]);
+    defs += lg('branch', 0, 0, 1, 0, [[0, '#a87b55'], [0.5, '#6e4a33'], [1, '#3e2a20']]);
+    defs += lg('shade', 0, 150, 0, 480, [[0, '#120904', 0.4], [0.55, '#120904', 0.72], [1, '#120904', 0]], true);
+    defs += lg('mound', 0, 0, 0, 1, [[0, '#76c453'], [0.16, '#46994a'], [0.5, '#256a3c'], [1, '#0f3a2a']]);
+    defs += '<radialGradient id="@mfade" cx=".5" cy=".18" r=".62"><stop offset=".55" stop-color="#fff"/><stop offset="1" stop-color="#000"/></radialGradient>';
+    defs += '<mask id="@mmask" maskUnits="userSpaceOnUse" x="-40" y="780" width="440" height="200"><rect x="-40" y="780" width="440" height="200" fill="url(#@mfade)"/></mask>';
     defs += '<radialGradient id="@stone" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#fbf1da"/><stop offset=".55" stop-color="#dccaa3"/><stop offset="1" stop-color="#9c8763"/></radialGradient>';
     defs += '<radialGradient id="@knot" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#1b0f08"/><stop offset=".6" stop-color="#3a2416"/><stop offset="1" stop-color="#8a6243"/></radialGradient>';
-    defs += '<radialGradient id="@cshadow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#06210f" stop-opacity=".55"/><stop offset="1" stop-color="#06210f" stop-opacity="0"/></radialGradient>';
+    defs += '<radialGradient id="@cshadow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#06210f" stop-opacity=".6"/><stop offset="1" stop-color="#06210f" stop-opacity="0"/></radialGradient>';
 
-    // mound behind everything (extends below the box so it never shows a bottom edge)
+    // mound (edges fade into the skyline; it runs past the box bottom so it never shows an edge)
     const mtop = [];
-    for (let x = -30; x <= 390; x += 30) mtop.push([x, 838 + Math.pow((x - 182) / 200, 2) * 58 + (rnd() - 0.5) * 4]);
-    const moundD = smooth(mtop) + 'L390 970L-30 970Z';
-    s += `<path d="${moundD}" fill="url(#@mound)"/>`;
-    s += `<path d="${smooth(mtop)}" fill="none" stroke="#b9ec7a" stroke-opacity=".55" stroke-width="2.5"/>`;
-    // far stones
+    for (let x = -40; x <= 400; x += 30) mtop.push([x, 840 + Math.pow((x - 182) / 190, 2) * 62 + (rnd() - 0.5) * 4]);
+    s += `<g mask="url(#@mmask)"><path d="${smooth(mtop)}L400 980L-40 980Z" fill="url(#@mound)"/>` +
+      `<path d="${smooth(mtop)}" fill="none" stroke="#c4f088" stroke-opacity=".6" stroke-width="2.5"/></g>`;
     const stone = (x, y, w, h, rot) => `<g transform="translate(${x} ${y}) rotate(${rot})"><path d="M${-w} ${h * 0.35}C${-w} ${-h * 0.6} ${-w * 0.4} ${-h} ${w * 0.15} ${-h}C${w * 0.8} ${-h} ${w} ${-h * 0.4} ${w} ${h * 0.25}C${w} ${h * 0.8} ${-w} ${h * 0.9} ${-w} ${h * 0.35}Z" fill="url(#@stone)" stroke="#5e4c35" stroke-opacity=".55" stroke-width="1.4"/>` +
       `<path d="M${-w * 0.55} ${-h * 0.45}C${-w * 0.2} ${-h * 0.75} ${w * 0.25} ${-h * 0.8} ${w * 0.5} ${-h * 0.55}" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="1.6" stroke-linecap="round"/></g>`;
-    s += stone(58, 872, 22, 15, -8) + stone(86, 880, 12, 9, 6) + stone(318, 870, 18, 12, 10);
+    s += stone(66, 874, 20, 14, -8) + stone(92, 884, 11, 8, 6) + stone(306, 874, 16, 11, 10);
+    s += '<ellipse cx="190" cy="856" rx="118" ry="15" fill="url(#@cshadow)"/>';
 
-    // crown shadow cast on the mound
-    s += '<ellipse cx="186" cy="852" rx="120" ry="16" fill="url(#@cshadow)"/>';
-
-    // roots
+    // wood: trunk + roots share one silhouette outline (stroked first, fills on top)
     const cxB = tcx(846);
     const roots = [
-      [[[cxB - 22, 812], [cxB - 52, 838], [cxB - 92, 852], [cxB - 128, 858]], 30],
-      [[[cxB + 24, 810], [cxB + 56, 836], [cxB + 96, 850], [cxB + 130, 856]], 28],
-      [[[cxB - 10, 830], [cxB - 28, 856], [cxB - 40, 876], [cxB - 46, 896]], 24],
-      [[[cxB + 14, 832], [cxB + 30, 858], [cxB + 36, 880], [cxB + 40, 900]], 22],
+      [[[cxB - 24, 808], [cxB - 56, 838], [cxB - 96, 854], [cxB - 132, 861]], 32],
+      [[[cxB + 26, 806], [cxB + 60, 836], [cxB + 100, 851], [cxB + 134, 858]], 30],
+      [[[cxB - 12, 828], [cxB - 30, 856], [cxB - 42, 878], [cxB - 48, 900]], 26],
+      [[[cxB + 14, 830], [cxB + 32, 858], [cxB + 38, 882], [cxB + 42, 904]], 24],
     ];
     const rootPaths = roots.map(([pts, w]) => taper(pts, (t) => lerp(w, 3, Math.pow(t, 0.8))));
-
-    // trunk
     const cl = [];
-    for (let y = 900; y >= 252; y -= 24) cl.push([tcx(y), y]);
-    const trunkD = taper(cl, (t) => thw(lerp(900, 252, t)) * 2);
+    for (let y = 900; y >= 296; y -= 22) cl.push([tcx(y), y]);
+    const trunkD = taper(cl, (t) => thw(lerp(900, 296, t)) * 2);
+    s += `<g fill="none" stroke="#21120a" stroke-width="3.6" stroke-opacity=".85">${[trunkD, ...rootPaths].map((d) => `<path d="${d}"/>`).join('')}</g>`;
+    s += rootPaths.map((d) => `<path d="${d}" fill="url(#@root)"/>`).join('');
+    s += `<path d="${trunkD}" fill="url(#@bark)"/>`;
 
-    // branches into the crown (behind the front foliage)
-    const yb = 300, bx = tcx(yb);
-    const branches = [
-      [[[bx - 4, yb + 40], [bx - 26, yb - 10], [bx - 62, yb - 62], [bx - 98, yb - 98], [bx - 120, yb - 118]], 26],
-      [[[bx + 6, yb + 40], [bx + 26, yb - 12], [bx + 58, yb - 64], [bx + 92, yb - 108], [bx + 108, yb - 126]], 24],
-      [[[bx, yb + 20], [bx + 6, yb - 40], [bx + 2, yb - 100], [bx + 8, yb - 160], [bx + 4, yb - 196]], 26],
-      [[[bx - 40, yb - 50], [bx - 52, yb - 92], [bx - 50, yb - 140]], 10],
-      [[[bx + 50, yb - 60], [bx + 70, yb - 98], [bx + 66, yb - 150]], 10],
-    ];
-    const brD = branches.map(([pts, w]) => taper(pts, (t) => lerp(w, 4, t)));
-    s += brD.map((d) => `<path d="${d}" fill="url(#@bark)" stroke="#2a180e" stroke-opacity=".6" stroke-width="1.4"/>`).join('');
-
-    const allWood = [trunkD, ...rootPaths];
-    s += allWood.map((d) => `<path d="${d}" fill="url(#@bark)"/>`).join('');
-
-    // bark: long twisting fissures (dark) and lit ridges (light), clipped to the trunk
+    // bark: long twisting fissures (dark) with lit ridges beside them, clipped to the wood
     let fis = '', lit = '';
-    for (let i = 0; i < 15; i++) {
-      const u0 = -0.86 + (i / 14) * 1.72, ph = rnd() * 6, y0 = 300 + rnd() * 260, len = 140 + rnd() * 260, pts = [];
-      for (let y = y0; y <= Math.min(860, y0 + len); y += 16) {
-        const u = clamp(u0 + 0.13 * Math.sin(y / 70 + ph) + (rnd() - 0.5) * 0.03, -0.95, 0.95);
+    for (let i = 0; i < 17; i++) {
+      const u0 = -0.88 + (i / 16) * 1.76, ph = rnd() * 6, y0 = 290 + rnd() * 280, len = 140 + rnd() * 300, pts = [];
+      for (let y = y0; y <= Math.min(870, y0 + len); y += 16) {
+        const u = clamp(u0 + 0.16 * Math.sin(y / 64 + ph) + (rnd() - 0.5) * 0.03, -0.95, 0.95);
         pts.push([tcx(y) + u * thw(y), y]);
       }
       if (pts.length < 3) continue;
       const d = smooth(pts);
-      fis += `<path d="${d}" stroke-width="${f1(1.6 + rnd() * 2)}" stroke-opacity="${f1(0.28 + rnd() * 0.3)}"/>`;
-      if (u0 < 0.2) lit += `<path d="${d}" transform="translate(-2.6 0)" stroke-width="${f1(1 + rnd())}" stroke-opacity="${f1(0.18 + rnd() * 0.2)}"/>`;
+      fis += `<path d="${d}" stroke-width="${f1(1.4 + rnd() * 2.2)}" stroke-opacity="${f1(0.26 + rnd() * 0.32)}"/>`;
+      if (u0 < 0.3) lit += `<path d="${d}" transform="translate(-2.8 0)" stroke-width="${f1(1 + rnd() * 1.2)}" stroke-opacity="${f1(0.16 + rnd() * 0.22)}"/>`;
     }
-    s += '<clipPath id="@tclip">' + allWood.map((d) => `<path d="${d}"/>`).join('') + '</clipPath>';
-    s += `<g clip-path="url(#@tclip)" fill="none" stroke-linecap="round"><g stroke="#ffd9a6">${lit}</g><g stroke="#1e1009">${fis}</g>`;
-    // knots
-    [[tcx(548) - 8, 548, 9, 13], [tcx(700) + 12, 700, 6, 8]].forEach(([x, y, rx, ry]) => {
-      s += `<ellipse cx="${f1(x)}" cy="${y}" rx="${rx + 4}" ry="${ry + 4}" fill="none" stroke="#2a180e" stroke-opacity=".4" stroke-width="2"/>` +
+    s += '<clipPath id="@tclip">' + [trunkD, ...rootPaths].map((d) => `<path d="${d}"/>`).join('') + '</clipPath>';
+    s += `<g clip-path="url(#@tclip)" fill="none" stroke-linecap="round"><g stroke="#ffdcae">${lit}</g><g stroke="#1e1009">${fis}</g>`;
+    [[tcx(548) - 9, 548, 9, 13], [tcx(706) + 13, 706, 6, 8]].forEach(([x, y, rx, ry]) => {
+      s += `<ellipse cx="${f1(x)}" cy="${y}" rx="${rx + 4}" ry="${ry + 4.5}" fill="none" stroke="#2a180e" stroke-opacity=".45" stroke-width="2.2"/>` +
         `<ellipse cx="${f1(x)}" cy="${y}" rx="${rx}" ry="${ry}" fill="url(#@knot)"/>` +
-        `<path d="M${f1(x - rx)} ${y - 2}a${rx} ${ry} 0 0 1 ${rx * 2} 0" fill="none" stroke="#e6b98a" stroke-opacity=".5" stroke-width="1.5"/>`;
+        `<path d="M${f1(x - rx)} ${y - 2}a${rx} ${ry} 0 0 1 ${rx * 2} 0" fill="none" stroke="#e6b98a" stroke-opacity=".55" stroke-width="1.5"/>`;
     });
-    // crown shade over the top of the trunk + cool sky rim on the right edge
-    s += `<rect x="100" y="250" width="160" height="190" fill="url(#@shade)"/>`;
     s += '</g>';
-    const rim = [];
-    for (let y = 330; y <= 800; y += 20) rim.push([tcx(y) + thw(y) - 2.2, y]);
-    s += `<path d="${smooth(rim)}" fill="none" stroke="#9fdcff" stroke-opacity=".38" stroke-width="2.2" stroke-linecap="round"/>`;
-    const rimL = [];
-    for (let y = 360; y <= 790; y += 20) rimL.push([tcx(y) - thw(y) + 2.4, y]);
-    s += `<path d="${smooth(rimL)}" fill="none" stroke="#ffe0b0" stroke-opacity=".35" stroke-width="2" stroke-linecap="round"/>`;
-    s += `<path d="${trunkD}" fill="none" stroke="#24140b" stroke-opacity=".75" stroke-width="1.6"/>`;
-    s += rootPaths.map((d) => `<path d="${d}" fill="none" stroke="#24140b" stroke-opacity=".6" stroke-width="1.4"/>`).join('');
+    // rims: cool sky light on the right edge, warm light on the left
+    const edge = (sgn, y0, y1, off) => { const p = []; for (let y = y0; y <= y1; y += 20) p.push([tcx(y) + sgn * (thw(y) - off), y]); return smooth(p); };
+    s += `<path d="${edge(1, 330, 790, 2.4)}" fill="none" stroke="#a6e1ff" stroke-opacity=".42" stroke-width="2.4" stroke-linecap="round"/>`;
+    s += `<path d="${edge(-1, 350, 780, 2.6)}" fill="none" stroke="#ffe2b4" stroke-opacity=".38" stroke-width="2" stroke-linecap="round"/>`;
 
-    // grass tufts in front of the roots, anemones, a little chamomile
+    // branches spread from the trunk into the crown (their fork hides behind the front foliage)
+    const yb = 330, bx = tcx(yb);
+    const branches = [
+      [[[bx - 4, yb], [bx - 30, yb - 46], [bx - 64, yb - 94], [bx - 100, yb - 128], [bx - 124, yb - 146]], 30],
+      [[[bx + 6, yb], [bx + 30, yb - 44], [bx + 62, yb - 96], [bx + 96, yb - 138], [bx + 114, yb - 158]], 28],
+      [[[bx + 2, yb - 4], [bx + 8, yb - 70], [bx + 2, yb - 140], [bx + 8, yb - 200], [bx + 4, yb - 236]], 28],
+      [[[bx - 46, yb - 72], [bx - 60, yb - 116], [bx - 58, yb - 168]], 11],
+      [[[bx + 52, yb - 84], [bx + 74, yb - 124], [bx + 70, yb - 176]], 11],
+    ];
+    const brD = branches.map(([pts, w]) => taper(pts, (t) => lerp(w, 4, t)));
+    s += brD.map((d) => `<path d="${d}" fill="url(#@branch)" stroke="#21120a" stroke-opacity=".7" stroke-width="1.5"/>`).join('');
+    // the crown's shade over the branches and the top of the trunk
+    s += `<clipPath id="@bclip"><path d="${trunkD}"/>${brD.map((d) => `<path d="${d}"/>`).join('')}</clipPath>` +
+      '<rect x="40" y="150" width="280" height="330" fill="url(#@shade)" clip-path="url(#@bclip)"/>';
+
+    // grass tufts in front of the roots, anemones, chamomile
     const tuft = (x, y, sc, col) => {
       let d = '';
       for (let i = 0; i < 6; i++) {
@@ -181,8 +161,8 @@
       }
       return `<path d="${d}" fill="${col}"/>`;
     };
-    [[22, 884, 1, '#5aa845'], [110, 862, 0.9, '#6dbb50'], [146, 868, 1.1, '#4f9a40'], [214, 870, 1, '#5fb048'],
-      [282, 858, 0.9, '#6dbb50'], [338, 880, 1.1, '#4a9440'], [176, 886, 1.2, '#3f8a3a'], [250, 884, 1.1, '#3f8a3a']]
+    [[40, 878, 1, '#5aa845'], [112, 864, 0.9, '#6dbb50'], [146, 872, 1.1, '#4f9a40'], [222, 874, 1, '#5fb048'],
+      [282, 862, 0.9, '#6dbb50'], [326, 878, 1, '#4a9440'], [182, 890, 1.2, '#3f8a3a'], [256, 888, 1.1, '#3f8a3a']]
       .forEach(([x, y, sc, c]) => (s += tuft(x, y, sc, c)));
     const anemone = (x, y, r, rot) => {
       let p = '';
@@ -191,13 +171,13 @@
         `<g transform="translate(${x} ${y})"><g fill="#e8343a" stroke="#8e1622" stroke-width=".8">${p}</g>` +
         `<circle r="${f1(r * 0.36)}" fill="#22142e"/><circle cx="${f1(-r * 0.12)}" cy="${f1(-r * 0.14)}" r="${f1(r * 0.12)}" fill="#5a4a7a"/></g>`;
     };
-    s += anemone(40, 856, 6.5, 8) + anemone(126, 860, 5.5, 22) + anemone(306, 854, 6, 40) + anemone(288, 874, 5, 15) + anemone(70, 893, 5.5, 30);
+    s += anemone(48, 860, 6.5, 8) + anemone(128, 862, 5.5, 22) + anemone(300, 858, 6, 40) + anemone(284, 878, 5, 15) + anemone(76, 892, 5.5, 30);
     const daisy = (x, y, r) => {
       let p = '';
       for (let i = 0; i < 8; i++) p += `<ellipse cx="0" cy="${-r * 0.6}" rx="${f1(r * 0.24)}" ry="${f1(r * 0.5)}" transform="rotate(${i * 45})"/>`;
       return `<g transform="translate(${x} ${y})"><g fill="#fffaf0">${p}</g><circle r="${f1(r * 0.3)}" fill="#f6c64e"/></g>`;
     };
-    s += daisy(96, 878, 5) + daisy(232, 892, 4.5) + daisy(338, 862, 4);
+    s += daisy(100, 880, 5) + daisy(232, 894, 4.5) + daisy(322, 866, 4);
 
     TREE = { defs, body: s };
     return TREE;
@@ -333,7 +313,7 @@
     const thigh = (far) => `<path class="ol" d="M-11.5-7C-12.6 5-11.4 17-10.4 28.5Q0 31.6 10.4 28.5C11.4 17 12.6 5 11.5-7Z" fill="url(#${id}${far ? 'rk' : 'rb'})"/>` +
       `<path d="M-10.6 24.6Q0 27.6 10.6 24.6L10.5 28.6Q0 31.6-10.5 28.6Z" fill="url(#${id}gd)"/>` +
       '<path d="M-3 2C-2 10-2.5 16-4 21" stroke="#0d2a6a" stroke-opacity=".3" stroke-width="1.6" fill="none" stroke-linecap="round"/>';
-    const upper = (far) => `<path class="ol" d="M-7.2-4C-7.8 5-7.2 13-6.6 21.5L6.6 21.5C7.2 13 7.8 5 7.2-4C5-9.6-5-9.6-7.2-4Z" fill="url(#${id}${far ? 'rk' : 'rb'})"/>`;
+    const upper = (far) => `<path class="ol" d="M-7.2-4C-7.8 5-7.2 14-6.6 22.6L6.6 22.6C7.2 14 7.8 5 7.2-4C5-9.6-5-9.6-7.2-4Z" fill="url(#${id}${far ? 'rk' : 'rb'})"/>`;
     const fore = (far) => `<path class="ol" d="M-6.6-1C-7.2 6-8.2 12-9.4 18.6L9.4 18.6C8.2 12 7.2 6 6.6-1Z" fill="url(#${id}${far ? 'rk' : 'rb'})"/>` +
       `<path d="M-8.9 15.4 8.9 15.4 9.4 18.6-9.4 18.6Z" fill="url(#${id}gd)"/>` +
       `<g transform="translate(0 23)"><path class="ol" d="M-5.6-4.6C-7-1-6 4.6-.6 5.8C4.6 6.6 7 2 6-2.6C5.2-5.6 1.6-6.4-1-6.2C-3-6-4.8-5.6-5.6-4.6Z" fill="url(#${id}${far ? 'sf' : 'sn'})"/>` +
@@ -355,28 +335,28 @@
     const collar = '<path d="M-9.2-40.6-1.6-30.4 5.4-41.4Q-2-43.6-9.2-40.6Z" fill="#f5efe2" stroke="#1b1238" stroke-width="1.6" stroke-linejoin="round"/>';
 
     // head (pivot = neck)
-    const drape = `<path class="ol" d="M3-50C17-50 24.6-36 24-16C23.6-4 21-.4 16.8 4.6L6.4 2.6C8.6-8 7.6-24 2.6-34Z" fill="url(#${id}cl)"/>` +
-      '<path d="M14-36C17-24 17-10 14.6 0" stroke="#b49a68" stroke-opacity=".6" stroke-width="1.5" fill="none" stroke-linecap="round"/>';
-    const face = `<path class="ol" d="M-17.6-27C-19.6-36-12.4-43.6-2.6-43.6C7.6-43.6 13.6-36.4 13.4-26C13.2-15.4 6-8.4-3-8.4C-11.6-8.4-16.4-15.6-17.6-27Z" fill="url(#${id}sn)"/>` +
-      '<ellipse cx="-7" cy="-17.6" rx="5.2" ry="3.6" fill="#ff7f72" fill-opacity=".42"/>';
+    const drape = `<path class="ol" d="M4-50C18-50 25.4-36 24.6-16C24.2-4 21.4 0 17 5L6.4 2.6C8.8-8 8-24 3-34Z" fill="url(#${id}cl)"/>` +
+      '<path d="M15.4-30C17.6-20 17.4-8 15 1" stroke="#b49a68" stroke-opacity=".55" stroke-width="1.5" fill="none" stroke-linecap="round"/>';
+    const face = `<path class="ol" d="M-17.8-27C-19.4-37-12.6-44-2.8-44C7.4-44 13.8-36.6 13.6-26.2C13.4-15.6 6.2-8.4-3-8.4C-11.6-8.4-16.6-15.6-17.8-27Z" fill="url(#${id}sn)"/>` +
+      '<ellipse cx="-7.4" cy="-17.4" rx="5.4" ry="3.6" fill="#ff7f72" fill-opacity=".45"/>';
     const beard = `<g data-j="beard"><path class="ol" d="M14.2-12.4C15.4 2 12 16 4.6 28C1.4 33-1.4 37-4.6 42.4C-6 36.2-9.6 32-11.6 26.4C-15.2 30-17.6 30.8-19.4 30.4C-19.2 24-21 18-24.2 12.6C-27.4 7-26.4-1.6-23.6-6.4C-17.8-2.6-10.4-3.4-4.4-6.8C2.4-10.6 9.4-12.6 14.2-12.4Z" fill="url(#${id}bd)"/>` +
       '<path d="M5-4C6 8 3 19-2 30M-6-3C-6 8-8 16-10 23M-15-1C-16 7-18 13-20 18M10-6C11 4 9 12 6 20" stroke="#9fb3d4" stroke-opacity=".65" stroke-width="1.3" fill="none" stroke-linecap="round"/>' +
       '<path d="M-21-4C-20 4-19 10-20 15" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" opacity=".9"/></g>';
-    const mouth = '<path class="cl-smile" d="M-19.6-10.2Q-15.6-6.6-11.2-9.4" stroke="#6b2a2a" stroke-width="1.8" fill="none" stroke-linecap="round"/>' +
-      '<path class="cl-open ol" d="M-21-11.4Q-15.6-9.6-10.4-11.6Q-11.6-3.6-16-3.6Q-20-3.6-21-11.4Z" fill="#7a2230"/>' +
-      '<path class="cl-open" d="M-18.6-6.2Q-15.8-7.8-12.8-6.2Q-14-4.2-15.8-4.2Q-17.6-4.2-18.6-6.2Z" fill="#ff8f8f"/>';
+    const mouth = '<path class="cl-smile" d="M-20-10.6Q-15.6-6.2-10.8-9.6" stroke="#6b2a2a" stroke-width="1.8" fill="none" stroke-linecap="round"/>' +
+      '<path class="cl-open ol" d="M-21.4-11.6Q-15.6-9.6-10-11.8Q-11.2-2.6-16-2.6Q-20.4-2.6-21.4-11.6Z" fill="#7a2230"/>' +
+      '<path class="cl-open" d="M-18.8-5.8Q-15.8-7.6-12.6-5.8Q-14-3.4-15.8-3.4Q-17.6-3.4-18.8-5.8Z" fill="#ff8f8f"/>';
     const stache = '<path class="ol" d="M-24.2-11.6C-25-15.6-21.6-18.4-17.6-16.4C-15.4-18.6-11-18.4-8.6-15.6C-6-16.4-3.2-14.6-3.4-12C-6.4-10.6-9.4-11-11.6-12.4C-14-10.6-17.6-10.4-19.6-12.2C-21-10.6-23.2-10.4-24.2-11.6Z" fill="url(#' + id + 'bd)"/>';
-    const nose = `<path class="ol" d="M-14.6-24.2C-19.6-25.4-25.4-22.4-25-17.6C-24.6-13.6-19.6-12.4-15.6-14.6Z" fill="url(#${id}sn)"/>` +
-      '<ellipse cx="-21.6" cy="-20.4" rx="1.8" ry="1.3" fill="#fff" fill-opacity=".7"/>';
-    const eye = '<g class="cl-eye"><ellipse cx="-9.4" cy="-27.2" rx="2.5" ry="3.3" fill="#1b1238"/><circle cx="-10.2" cy="-28.4" r="1" fill="#fff"/></g>' +
-      '<path class="cl-happy" d="M-12.8-26.4Q-9.4-30.8-6-26.4" stroke="#1b1238" stroke-width="2" fill="none" stroke-linecap="round"/>' +
-      '<path d="M-3.6-23C-2.8-21-3-19.6-4-18.6" stroke="#b86a4a" stroke-opacity=".55" stroke-width="1.2" fill="none" stroke-linecap="round"/>';
-    const brow = '<path class="ol" d="M-15.4-31.6C-14.6-35.6-8.8-37.2-4.2-34.6C-2.8-33.6-2.8-32-4.4-31.4C-7.8-32.4-11.6-32-15.4-31.6Z" fill="#fff"/>';
-    const wrap = `<path class="ol" d="M-19.2-30C-21.4-42-12.6-53 1-53.2C14-53.4 22.6-45 22.4-33.2C22.2-27 19.6-21 17-16.4L8.6-17.6C9.6-25 6.4-31.6-.4-33.6C-6.6-35.4-13.8-33.6-19.2-30Z" fill="url(#${id}cl)"/>` +
-      '<path d="M-6-50C-1-45 3-40 5-33M6-52C11-46 14-40 15-30" stroke="#b49a68" stroke-opacity=".55" stroke-width="1.4" fill="none" stroke-linecap="round"/>' +
-      '<path d="M-17.8-38C-14-50 4-56 16-46" stroke="#fff" stroke-opacity=".75" stroke-width="2" fill="none" stroke-linecap="round"/>' +
-      '<path class="ol" d="M-20-32.6C-13-37.6-2-38.4 6.6-34.6C12-32.2 16.6-28.6 20-23.4L19-19.6C15.6-24.6 11-28 5.4-30.4C-2.6-33.6-12.6-33-19.2-28.6Z" fill="#2a6fd6"/>' +
-      `<path d="M-19.4-31.4C-12.6-35.4-2.6-36.2 5.6-32.8C10.8-30.6 15.4-27.2 19-22.4" stroke="url(#${id}gd)" stroke-width="1.6" fill="none" stroke-dasharray="3.2 2.2"/>`;
+    const nose = `<path class="ol" d="M-14.4-24.6C-19.8-25.8-25.6-22.6-25.2-17.6C-24.8-13.4-19.6-12.4-15.4-14.8Z" fill="url(#${id}sn)"/>` +
+      '<ellipse cx="-21.6" cy="-20.8" rx="1.9" ry="1.3" fill="#fff" fill-opacity=".75"/>';
+    const eye = '<g class="cl-eye"><ellipse cx="-9.8" cy="-26.4" rx="2.9" ry="3.7" fill="#1b1238"/><circle cx="-10.8" cy="-27.8" r="1.25" fill="#fff"/><circle cx="-8.8" cy="-24.9" r=".55" fill="#fff" fill-opacity=".8"/></g>' +
+      '<path class="cl-happy" d="M-13.4-25.6Q-9.8-30.4-6.2-25.6" stroke="#1b1238" stroke-width="2.1" fill="none" stroke-linecap="round"/>' +
+      '<path d="M-4.4-22.4C-3.4-20.6-3.6-19-4.6-18" stroke="#b86a4a" stroke-opacity=".5" stroke-width="1.2" fill="none" stroke-linecap="round"/>';
+    const brow = '<path class="ol" d="M-16.8-33.2C-14.8-37-9-37.6-5-34C-4.4-33.2-5-32.2-6-32.4C-9.4-34.6-13.4-34.4-15.8-31.8C-16.6-31.8-17-32.4-16.8-33.2Z" fill="#fff"/>';
+    const wrap = `<path class="ol" d="M-21-38.6C-21.6-49.6-12.4-57.4.8-57.4C14.6-57.4 23.6-48.6 23.2-36C23-29 20.4-22.4 17.2-17L9.4-18.8C10-25.8 6.6-33-1-35.6C-7.8-38-15-38.2-21-38.6Z" fill="url(#${id}cl)"/>` +
+      '<path d="M-15.6-45C-10-53.6 4-56.4 13.6-50" stroke="#fff" stroke-opacity=".8" stroke-width="2.2" fill="none" stroke-linecap="round"/>' +
+      '<path d="M7-55C12.6-49 16-42 16.8-33" stroke="#b49a68" stroke-opacity=".5" stroke-width="1.4" fill="none" stroke-linecap="round"/>' +
+      '<path class="ol" d="M-21.6-41.6C-14.6-44.6-3-44.2 5.6-40.2C12-37.2 17-32.4 20.4-26L19-21.6C15.8-27.6 11.2-32 5-34.8C-3-38.4-13.8-38.6-20.8-36.6Z" fill="#2a6fd6"/>' +
+      `<path d="M-21.2-39.2C-14-42-3.4-41.6 5.2-37.8C11.4-35 16-30.6 19.6-24.2" stroke="url(#${id}gd)" stroke-width="1.7" fill="none" stroke-dasharray="3.2 2.2"/>`;
 
     return `<svg class="lad-sage" viewBox="-90 -190 180 210" width="180" height="210" overflow="visible" aria-hidden="true"><defs>${defs}</defs>` +
       '<ellipse class="cl-ground" cx="2" cy="1" rx="30" ry="5.5" fill="#06210f" fill-opacity=".38"/>' +
@@ -384,7 +364,7 @@
       leg('legB', true) +
       `<g data-j="torsoB"><g class="cl-breath">${arm('armB', true)}${skirt}${robe}${collar}</g></g>` +
       leg('legF', false) +
-      `<g data-j="torsoF"><g class="cl-breath">${sash}<g data-j="head">${drape}${face}${beard}${mouth}${stache}${nose}${eye}${brow}${wrap}</g>${arm('armF', false)}</g></g>` +
+      `<g data-j="torsoF"><g class="cl-breath">${sash}${arm('armF', false)}<g data-j="head">${drape}${face}${beard}${mouth}${stache}${nose}${eye}${wrap}${brow}</g></g></g>` +
       '</g></svg>';
   }
 
@@ -393,18 +373,18 @@
     legF: [-2, 0], legF2: [0, LEG.thigh], legF3: [0, LEG.shin],
     legB: [5, 0], legB2: [0, LEG.thigh], legB3: [0, LEG.shin],
     torsoB: [2, 0], torsoF: [2, 0],
-    armF: [-3, -36], armF2: [0, 20.5], armB: [7, -37], armB2: [0, 20.5],
+    armF: [-3, -36], armF2: [0, 21.5], armB: [7, -37], armB2: [0, 21.5],
     head: [-3, -41], beard: [-6, -10],
   };
   // Poses: lean, head, legs (thigh, shin, foot), arms (upper, elbow). Positive = forward.
   const POSES = {
-    idle:   { lean: -5, head: 22, tF: 6, sF: -4, fF: 0, tB: -8, sB: 4, fB: 0, uF: -38, eF: 96, uB: 78, eB: 22 },
-    climbA: { lean: 9, head: 12, tF: 74, sF: -112, fF: 26, tB: 6, sB: -8, fB: 0, uF: 156, eF: 12, uB: 120, eB: 40 },
-    climbB: { lean: 9, head: 12, tF: 6, sF: -8, fF: 0, tB: 70, sB: -108, fB: 26, uF: 124, eF: 42, uB: 160, eB: 8 },
-    crouch: { lean: 16, head: 4, tF: 82, sF: -128, fF: 20, tB: 44, sB: -86, fB: 10, uF: 136, eF: 50, uB: 112, eB: 58 },
-    reach:  { lean: 4, head: 20, tF: 22, sF: -26, fF: -10, tB: -4, sB: -14, fB: -14, uF: 172, eF: 4, uB: 160, eB: 2 },
-    cheer:  { lean: -6, head: 16, tF: 4, sF: -4, fF: 0, tB: -10, sB: 6, fB: 0, uF: 152, eF: -22, uB: 206, eB: -26 },
-    cheerR: { lean: -4, head: 16, tF: 46, sF: -70, fF: 16, tB: 4, sB: -6, fB: 0, uF: 150, eF: -20, uB: 204, eB: -24 },
+    idle:   { lean: 2, head: 22, tF: 6, sF: -4, fF: 0, tB: -8, sB: 4, fB: 0, uF: 10, eF: 14, uB: 116, eB: 14 },
+    climbA: { lean: 12, head: 16, tF: 74, sF: -112, fF: 26, tB: 6, sB: -8, fB: 0, uF: 150, eF: 4, uB: 106, eB: 30 },
+    climbB: { lean: 12, head: 16, tF: 6, sF: -8, fF: 0, tB: 70, sB: -108, fB: 26, uF: 112, eF: 26, uB: 146, eB: 6 },
+    crouch: { lean: 18, head: 8, tF: 82, sF: -128, fF: 20, tB: 44, sB: -86, fB: 10, uF: 120, eF: 34, uB: 100, eB: 44 },
+    reach:  { lean: 6, head: 22, tF: 22, sF: -26, fF: -10, tB: -4, sB: -14, fB: -14, uF: 152, eF: 2, uB: 132, eB: 6 },
+    cheer:  { lean: -7, head: 20, tF: 4, sF: -4, fF: 0, tB: -10, sB: 6, fB: 0, uF: 142, eF: 4, uB: 236, eB: -14 },
+    cheerR: { lean: -5, head: 20, tF: 46, sF: -70, fF: 16, tB: 4, sB: -6, fB: 0, uF: 142, eF: 4, uB: 234, eB: -14 },
   };
   const KEYS = Object.keys(POSES.idle);
   const blendPose = (a, b, t) => { const o = {}; KEYS.forEach((k) => (o[k] = lerp(a[k], b[k], t))); return o; };
@@ -486,6 +466,7 @@
       rungs.innerHTML = '';
       rungEls = [];
       root.dataset.steps = N;
+      if (N > 10) root.dataset.dense = ''; else delete root.dataset.dense;
       const r = N <= 4 ? 21 : N <= 8 ? 18 : N <= 12 ? 16 : 14.5;
       const zig = N > 6;
       for (let i = 1; i <= N; i++) {
@@ -499,7 +480,7 @@
         Object.assign(pegL.style, { left: f1(cx - hw - lenL) + 'px', top: f1(yc - 5.5) + 'px', width: lenL + 6 + 'px', transform: `rotate(${6 - alt * 2}deg)` });
         const bx = cx - hw - lenL - r + 5, by = yc - (lenL * Math.sin((6 - alt * 2) * D2R)) + 1;
         const glow = el('i', 'glow');
-        Object.assign(glow.style, { left: f1((bx + cx + hw + lenR) / 2) + 'px', top: f1(yc) + 'px', width: f1(cx + hw + lenR - bx + 40) + 'px' });
+        Object.assign(glow.style, { left: f1(bx) + 'px', top: f1(by) + 'px', width: f1(r * 3.6) + 'px', height: f1(r * 3.6) + 'px' });
         const badge = el('b', 'badge');
         badge.textContent = String(i);
         Object.assign(badge.style, { left: f1(bx) + 'px', top: f1(by) + 'px', '--r': r + 'px' });
@@ -533,7 +514,7 @@
       const hip = -Math.max(legDrop(p.tF, p.sF), legDrop(p.tB, p.sB));
       setJ('legF', J.legF[0], hip, p.tF); setJ('legF2', 0, LEG.thigh, p.sF); setJ('legF3', 0, LEG.shin, p.fF - p.tF - p.sF);
       setJ('legB', J.legB[0], hip, p.tB); setJ('legB2', 0, LEG.thigh, p.sB); setJ('legB3', 0, LEG.shin, p.fB - p.tB - p.sB);
-      setJ('torsoB', J.torsoB[0], hip, p.lean); setJ('torsoF', J.torsoF[0], hip, p.lean);
+      setJ('torsoB', J.torsoB[0], hip, -p.lean); setJ('torsoF', J.torsoF[0], hip, -p.lean);   // he faces −x: forward lean is CCW
       setJ('armF', J.armF[0], J.armF[1], p.uF); setJ('armF2', 0, J.armF2[1], p.eF);
       setJ('armB', J.armB[0], J.armB[1], p.uB); setJ('armB2', 0, J.armB2[1], p.eB);
       setJ('head', J.head[0], J.head[1], p.head);
@@ -700,6 +681,7 @@
         clearTimeout(cheerTimer); stop();
         buildRungs(); place(level);
       },
+      _pose(name) { if (POSES[name]) { stop(); st.pose = { ...POSES[name] }; svg.classList.toggle('is-cheer', /^cheer/.test(name)); render(); } },   // dev aid
       destroy() {
         destroyed = true; clearTimeout(cheerTimer); stop();
         cubeAnims.forEach((a) => a.cancel());

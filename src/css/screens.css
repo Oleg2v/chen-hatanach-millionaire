@@ -312,16 +312,16 @@ body[data-screen="play"] .bg-rays { opacity: 0.35; }
 
 /* ======================= RESULT ======================= */
 #scr-result .ladder-box { opacity: 1; }
-.rs-main { position: absolute; top: 96px; right: 440px; left: 60px; bottom: 150px; display: flex; flex-direction: column; align-items: center; }
+.rs-main { position: absolute; top: 74px; right: 440px; left: 60px; bottom: 150px; display: flex; flex-direction: column; align-items: center; }
 .rs-who { font: 600 42px var(--f-ui); color: rgba(235, 245, 255, 0.92); display: inline-flex; align-items: center; gap: 14px; }
 .rs-who i { width: 20px; height: 20px; transform: rotate(45deg) scaleY(1.3); border-radius: 3px; background: var(--c, var(--e-blue)); box-shadow: 0 0 12px var(--c); }
-.rs-head { margin: 6px 0 0; font: 900 120px/1.15 var(--f-title); filter: drop-shadow(0 10px 30px rgba(0, 8, 40, 0.55)); }
-.rs-wreath { position: relative; width: 500px; height: 500px; margin-top: -14px; display: grid; place-items: center; }
+.rs-head { margin: 0; font: 900 104px/1.12 var(--f-title); filter: drop-shadow(0 10px 30px rgba(0, 8, 40, 0.55)); }
+.rs-wreath { position: relative; width: 470px; height: 470px; margin-top: -6px; display: grid; place-items: center; }
 .rs-wreath .wreath-host { position: absolute; inset: 0; }
 .rs-score { position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; margin-top: -8px; }
-.rs-score .val { font: 900 210px/1 var(--f-ui); letter-spacing: -0.04em; direction: ltr; filter: drop-shadow(0 10px 30px rgba(0, 8, 40, 0.5)); }
+.rs-score .val { font: 900 196px/1 var(--f-ui); letter-spacing: -0.04em; direction: ltr; filter: drop-shadow(0 10px 30px rgba(0, 8, 40, 0.5)); }
 .rs-score .unit { font: 600 40px var(--f-ui); color: rgba(235, 245, 255, 0.9); margin-top: 4px; }
-.rs-stats { display: flex; align-items: center; gap: 22px; margin-top: 4px; font: 500 38px var(--f-ui); color: #fff; opacity: 0; }
+.rs-stats { display: flex; align-items: center; gap: 22px; margin-top: 46px; font: 500 38px var(--f-ui); color: #fff; opacity: 0; }
 .rs-stats b { font-weight: 800; color: var(--gold-1); }
 .rs-marks { display: flex; gap: 10px; }
 .rs-marks i { width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center; color: #fff; }

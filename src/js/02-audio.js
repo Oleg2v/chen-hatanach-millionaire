@@ -73,14 +73,17 @@
     return g;
   }
 
-  // ───────────────────────── sources ─────────────────────────
-  const noiseCache = new Map();               // sampleRate → AudioBuffer (buffers may be shared across contexts)
-  function noiseBuffer(ctx) {
-    const sr = ctx.sampleRate;
+  // ───────────────────────── procedural buffers (cached per sample rate, context-free) ─────────────────────────
+  /** AudioBuffers aren't tied to a context, so they can be prepared before the first gesture (see warm()). */
+  function mkBuffer(ch, n, sr, ctx) {
+    try { return new AudioBuffer({ numberOfChannels: ch, length: n, sampleRate: sr }); } catch (e) { return (ctx || {}).createBuffer(ch, n, sr); }
+  }
+  const noiseCache = new Map();
+  function noiseBuffer(ctx, sr = ctx.sampleRate) {
     let b = noiseCache.get(sr);
     if (!b) {
       const n = Math.floor(sr * 2), r = mulberry32(99);
-      b = ctx.createBuffer(1, n, sr);
+      b = mkBuffer(1, n, sr, ctx);
       const d = b.getChannelData(0);
       for (let i = 0; i < n; i++) d[i] = r() * 2 - 1;
       noiseCache.set(sr, b);
@@ -90,8 +93,8 @@
 
   /** Karplus–Strong plucked string rendered into a buffer (allpass-tuned, normalised, cached). */
   const ksCache = new Map();
-  function ksBuffer(ctx, f, dur, bright, t60) {
-    const sr = ctx.sampleRate, key = sr + '|' + f.toFixed(2) + '|' + dur + '|' + bright + '|' + t60;
+  function ksBuffer(ctx, f, dur, bright, t60, sr = ctx.sampleRate) {
+    const key = sr + '|' + f.toFixed(2) + '|' + dur + '|' + bright + '|' + t60;
     let b = ksCache.get(key);
     if (b) return b;
     const n = Math.ceil(sr * dur), P = sr / f - 0.5;
@@ -108,7 +111,7 @@
     mean /= L;
     for (let i = 0; i < L; i++) ring[i] -= mean;
     const rho = Math.pow(10, -3 / (t60 * f));
-    b = ctx.createBuffer(1, n, sr);
+    b = mkBuffer(1, n, sr, ctx);
     const out = b.getChannelData(0);
     let idx = 0, prev = 0, apx = 0, apy = 0, peak = 1e-9;
     for (let i = 0; i < n; i++) {
@@ -477,25 +480,25 @@
     sparkles(ctx, d, t + 1.3, 1.2, 14, { base: 86, lo: 0, hi: 12, amp: 0.03, dur: 0.5 });
   }
 
-  /** The mix. name → { dur (s, returned by play), db (fader), gap (ms, min re-trigger interval), fn } */
+  /** The mix. name → { dur (s, returned by play), db (fader), gap (ms, min re-trigger interval), bake (pre-render), fn } */
   const SOUNDS = {
-    click: { dur: 0.07, db: 5, gap: 30, fn: sClick },
-    hover: { dur: 0.09, db: 9, gap: 40, fn: sHover },
-    modal: { dur: 0.5, db: 5.5, gap: 60, fn: sModal },
+    click: { dur: 0.07, db: -6, gap: 30, fn: sClick },
+    hover: { dur: 0.09, db: 0, gap: 40, fn: sHover },
+    modal: { dur: 0.5, db: 1.5, gap: 60, fn: sModal },
     whoosh: { dur: 0.52, db: 0, gap: 120, fn: sWhoosh },
-    start: { dur: 1.5, db: 1, gap: 300, fn: sStart },
-    tile: { dur: 0.8, db: 2, gap: 120, fn: sTile },
-    question: { dur: 0.95, db: 2.5, gap: 200, fn: sQuestion },
-    answer: { dur: 0.5, db: 5, gap: 20, fn: sAnswer },
-    lock: { dur: LOCK, db: -2, gap: 200, fn: sLock },
-    correct: { dur: 1.6, db: 6, gap: 200, fn: sCorrect },
+    start: { dur: 1.5, db: 0.5, gap: 300, bake: 1, fn: sStart },
+    tile: { dur: 0.8, db: 1, gap: 120, bake: 1, fn: sTile },
+    question: { dur: 0.95, db: 2.5, gap: 200, bake: 1, fn: sQuestion },
+    answer: { dur: 0.5, db: 1.5, gap: 20, fn: sAnswer },
+    lock: { dur: LOCK, db: -2, gap: 200, bake: 1, fn: sLock },
+    correct: { dur: 1.6, db: 6, gap: 200, bake: 1, fn: sCorrect },
     wrong: { dur: 1.2, db: -2.5, gap: 200, fn: sWrong },
-    fifty: { dur: 1.15, db: 8.5, gap: 200, fn: sFifty },
-    climb: { dur: 0.5, db: 7, gap: 60, fn: sClimb },
-    score: { dur: 0.04, db: 7, gap: 45, fn: sScore },
-    points: { dur: 0.5, db: 5, gap: 60, fn: sPoints },
-    victory: { dur: 3.3, db: 2, gap: 500, fn: sVictory },
-    back: { dur: 0.17, db: 12, gap: 60, fn: sBack },
+    fifty: { dur: 1.15, db: 8.5, gap: 200, bake: 1, fn: sFifty },
+    climb: { dur: 0.5, db: 3, gap: 60, fn: sClimb },
+    score: { dur: 0.04, db: -4.5, gap: 45, fn: sScore },
+    points: { dur: 0.5, db: 1.5, gap: 60, fn: sPoints },
+    victory: { dur: 3.3, db: 3.5, gap: 500, bake: 1, fn: sVictory },
+    back: { dur: 0.17, db: 5, gap: 60, fn: sBack },
     reveal: { dur: 0.55, db: 3, gap: 120, fn: sReveal },
   };
   const fader = (def) => Math.pow(10, (def.db || 0) / 20);
@@ -517,9 +520,11 @@
   }
 
   /** Procedural room: stereo decaying noise that darkens as it decays, a few early reflections (~1.8 s). */
-  function impulse(ctx, secs = 1.8) {
-    const sr = ctx.sampleRate, n = Math.floor(sr * secs), pre = Math.floor(sr * 0.012);
-    const buf = ctx.createBuffer(2, n, sr);
+  const irCache = new Map();
+  function impulse(ctx, sr = ctx.sampleRate, secs = 1.8) {
+    if (irCache.has(sr)) return irCache.get(sr);
+    const n = Math.floor(sr * secs), pre = Math.floor(sr * 0.012);
+    const buf = mkBuffer(2, n, sr, ctx);
     for (let ch = 0; ch < 2; ch++) {
       const d = buf.getChannelData(ch), r = mulberry32(17 + ch * 31);
       let lp = 0;
@@ -534,6 +539,7 @@
         if (at < n) d[at] += g * (ch ? -1 : 1);
       }
     }
+    irCache.set(sr, buf);
     return buf;
   }
 
@@ -590,10 +596,70 @@
       if (!ok) return;
       window.removeEventListener('pointerdown', onGesture, true);
       window.removeEventListener('keydown', onGesture, true);
+      bakeAll();
     });
   }
   window.addEventListener('pointerdown', onGesture, true);
   window.addEventListener('keydown', onGesture, true);
+
+  // ───────── idle prep: keep the main thread free at the big moments (60 fps) ─────────
+  const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 2500 }) : setTimeout(fn, 120));
+  /** Run tasks one per idle slot (a task may return a Promise). */
+  function idleQueue(tasks) {
+    const step = () => {
+      const task = tasks.shift();
+      if (!task) return;
+      let p = null;
+      try { p = task(); } catch (e) { /* skip */ }
+      Promise.resolve(p).catch(() => {}).then(() => idle(step));
+    };
+    idle(step);
+  }
+
+  /** Before any gesture (offline contexts need none): prepare the room and bake START at both common device rates,
+   *  so the very first press costs ~0.3 ms of main thread. */
+  function warm() {
+    if (!AC || !OAC) return;
+    const tasks = [];
+    for (const sr of [48000, 44100]) tasks.push(() => impulse(null, sr), () => noiseBuffer(null, sr), () => bakeInto('start', sr));
+    setTimeout(() => idleQueue(tasks), 2500);   // after the splash intro
+  }
+
+  /** After unlock: pre-render heavy sounds into 4-channel stems (dry L/R + reverb-send L/R). They still go through the
+   *  live voice → reverb → compressor path, so a baked play costs ~7 nodes instead of hundreds. */
+  const baked = new Map();                    // 'name@sampleRate' → AudioBuffer
+  let bakeStarted = false;
+  const bakeInto = (n, sr) => (baked.has(n + '@' + sr) ? null : bake(n, sr).then((b) => { if (b) baked.set(n + '@' + sr, b); }));
+  function bakeAll() {
+    if (bakeStarted || !ctx || !OAC || muted) return;
+    bakeStarted = true;
+    const sr = ctx.sampleRate;
+    const tasks = Object.keys(SOUNDS).filter((n) => SOUNDS[n].bake).map((n) => () => bakeInto(n, sr));
+    setTimeout(() => idleQueue(tasks), 1800);
+  }
+  function bake(name, sr) {
+    const def = SOUNDS[name], oc = new OAC(4, Math.ceil((def.dur + 0.3) * sr), sr);
+    oc.destination.channelInterpretation = 'discrete';
+    const merge = oc.createChannelMerger(4);
+    merge.connect(oc.destination);
+    const stem = (k) => {
+      const g = oc.createGain();
+      g.channelCount = 2; g.channelCountMode = 'explicit';      // mono sources up-mix to L = R, as on the live bus
+      const sp = oc.createChannelSplitter(2);
+      g.connect(sp); sp.connect(merge, 0, k); sp.connect(merge, 1, k + 1);
+      return g;
+    };
+    def.fn(oc, { out: stem(0), fx: stem(2) }, 0, {});
+    return oc.startRendering();
+  }
+  function playBaked(c, v, buf, t) {
+    const src = c.createBufferSource(), sp = c.createChannelSplitter(4), mo = c.createChannelMerger(2), mf = c.createChannelMerger(2);
+    src.buffer = buf; src.connect(sp);
+    sp.connect(mo, 0, 0); sp.connect(mo, 1, 1); sp.connect(mf, 2, 0); sp.connect(mf, 3, 1);
+    mo.connect(v.out); mf.connect(v.fx);
+    src.start(t);
+  }
+  warm();
 
   function release(v) {
     if (!voices.delete(v)) return;
@@ -620,7 +686,8 @@
       const v = { out: gainNode(c, fader(def)), fx: gainNode(c, fader(def)), timer: 0 };
       v.out.connect(chain.out); v.fx.connect(chain.fx);
       voices.add(v);
-      def.fn(c, v, c.currentTime + 0.02, o);
+      const b = baked.get(name + '@' + c.sampleRate), t0 = c.currentTime + 0.02;
+      if (b) playBaked(c, v, b, t0); else def.fn(c, v, t0, o);
       v.timer = setTimeout(() => release(v), (def.dur + 1.2) * 1000);
     } catch (e) {
       if (!warned) { warned = true; console.warn('[sound]', name, e); }
@@ -650,25 +717,34 @@
       chain.master.gain.cancelScheduledValues(t);
       chain.master.gain.setTargetAtTime(muted ? 0 : 1, t, 0.02);
     } catch (e) { /* ignore */ }
+    if (!muted && ctx.state === 'running') bakeAll();
   }
 
-  /** Offline render through the full master chain (tests/tools) → Promise<AudioBuffer|null>. Deterministic per seed. */
+  /** Offline render through the full master chain (tests/tools) → Promise<AudioBuffer|null>. Deterministic per seed.
+   *  A fresh compressor starts gain-reduced and needs its release time to settle, so the sound is scheduled after a
+   *  0.6 s pre-roll that is trimmed off — the result matches what the live, idling chain plays. */
   function render(name, opts, { sampleRate = 48000, tail = 2, reverb = true, seed = 1 } = {}) {
     const def = SOUNDS[name];
     if (!def || !OAC) return Promise.resolve(null);
-    const oc = new OAC(2, Math.ceil((def.dur + tail) * sampleRate), sampleRate);
+    const pre = Math.round(0.6 * sampleRate), len = Math.ceil((def.dur + tail) * sampleRate);
+    const oc = new OAC(2, pre + len, sampleRate);
     const ch = buildChain(oc, { reverb });
     ch.out.gain.value = ch.fx.gain.value = fader(def);
     const prev = rnd;
     rnd = mulberry32(seed);
-    try { def.fn(oc, { out: ch.out, fx: ch.fx }, 0, Object.assign({}, opts || {})); } finally { rnd = prev; }
-    return oc.startRendering();
+    try { def.fn(oc, { out: ch.out, fx: ch.fx }, pre / sampleRate, Object.assign({}, opts || {})); } finally { rnd = prev; }
+    return oc.startRendering().then((full) => {
+      const out = mkBuffer(2, len, sampleRate, oc);
+      for (let c = 0; c < 2; c++) out.copyToChannel(full.getChannelData(c).subarray(pre), c);
+      return out;
+    });
   }
 
   CH.sound = {
     play, unlock, stopAll, setMuted, render,
     get muted() { return muted; },
     get context() { return ctx; },
+    get baked() { return Array.from(baked.keys()).filter((k) => !ctx || k.endsWith('@' + ctx.sampleRate)).map((k) => k.split('@')[0]); },
     names: Object.keys(SOUNDS),
   };
 })(window.CH = window.CH || {});

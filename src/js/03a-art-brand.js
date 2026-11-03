@@ -1,5 +1,5 @@
 /* 03a-art-brand.js — brand art as inline SVG strings: emblem, wordmark, Jerusalem skyline, book-cube.
-   Pure string builders (no DOM). Real brand PNGs (window.CH_BRAND) win over the SVG recreations. */
+   Pure string builders (no DOM). Real brand images (window.CH_BRAND data URLs) win over the SVG recreations. */
 (function (CH) {
   'use strict';
 
@@ -58,7 +58,7 @@
     const img = brandImg('emblem');
     if (img) return img;
     const id = uid('em'), c = 100;
-    const R = ring ? 80 : 97;                       // star tip radius (disc radius 97)
+    const R = ring ? 80 : shaded ? 93 : 97;         // star tip radius (disc radius 97; room for the shadow)
     const rh = hexRhombi(c, c, R, R * 0.036);
     let defs = '', body = '';
 
@@ -539,7 +539,7 @@
 
   function bookCube(color, { letter, ornament = true, size = 100 } = {}) {
     if (typeof color === 'number') color = EMBLEM_COLORS[((color % 6) + 6) % 6];
-    else if (color in COLOR_NAMES) color = EMBLEM_COLORS[COLOR_NAMES[color]];
+    else if (Object.prototype.hasOwnProperty.call(COLOR_NAMES, color)) color = EMBLEM_COLORS[COLOR_NAMES[color]];
     if (!rgb(color)) color = EMBLEM_COLORS[5];
     const id = uid('bk');
     const a = 48, t = 38, b = 3.4, o = 2.4, sp = 2.6;       // cover size, thickness, board, page recess, spine wrap
