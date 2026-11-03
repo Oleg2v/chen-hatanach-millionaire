@@ -143,6 +143,40 @@ async function run(vw, vh, tag, full) {
     await page.click('.modal [data-key="leave"]');
     await waitScreen('board'); await wait(1500);
     await shot('16-board-resume');
+    // resume survives a reload: tile 24 is "in progress" and continues at question 4
+    await page.reload(); await wait(2600);
+    await page.keyboard.press('Space'); await waitScreen('board'); await wait(1200);
+    const resumeIdx = await page.evaluate(() => window.CH.store.current() && window.CH.store.current().idx);
+    if (resumeIdx !== 3) problems.push(`[${tag}] resume idx = ${resumeIdx}, expected 3`);
+    await page.click('.tile[data-n="24"]'); await waitScreen('play'); await wait(900);
+    await page.keyboard.press('Space'); await waitPhase('answering');
+    const qNo = await page.evaluate(() => window.CH.play.state.idx);
+    if (qNo !== 3) problems.push(`[${tag}] resumed at question index ${qNo}, expected 3`);
+    await page.keyboard.press('Escape'); await wait(500); await page.click('.modal [data-key="leave"]'); await waitScreen('board');
+
+    // timer: 10 s, let it run out → correct answer revealed, no points
+    await page.evaluate(() => { const S = window.CH.store; S.updateSettings({ answerTime: 10, perParticipant: 1, participants: 16 }); S.restoreDemo(); S.resetRound(); window.CH.ui.go('board'); });
+    await wait(1600);
+    await page.click('.tile[data-n="3"]'); await waitScreen('play'); await wait(900);
+    await page.keyboard.press('Space'); await waitPhase('answering');
+    await wait(7000); await shot('17-timer-warn');
+    await waitPhase('revealed', 8000); await wait(600);
+    await shot('18-timeout');
+    const tlog = await page.evaluate(() => window.CH.store.current().log[0]);
+    if (!tlog || !tlog.timeout || tlog.pts !== 0) problems.push(`[${tag}] timeout log wrong: ${JSON.stringify(tlog)}`);
+    const steps1 = await page.evaluate(() => window.CH.store.current().qids.length);
+    if (steps1 !== 1) problems.push(`[${tag}] 1-question setting gave ${steps1}`);
+    await page.keyboard.press('Enter'); await waitScreen('result'); await wait(3500);
+    await shot('19-result-zero');
+    await page.keyboard.press('Enter'); await waitScreen('board');
+
+    // classic theme shows the skyline
+    await page.evaluate(() => window.CH.store.updateSettings({ theme: 'classic', answerTime: 30, perParticipant: 4 }));
+    await wait(1200);
+    const classic = await page.evaluate(() => document.body.classList.contains('theme-classic') && getComputedStyle(document.querySelector('.bg-skyline')).display !== 'none');
+    if (!classic) problems.push(`[${tag}] classic theme did not show the skyline`);
+    await shot('20-board-classic');
+    await page.evaluate(() => window.CH.store.updateSettings({ theme: 'modern' }));
   }
   await browser.close();
 }

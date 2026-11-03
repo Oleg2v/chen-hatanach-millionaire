@@ -1,0 +1,850 @@
+/* 03b-ladder.js — the play-screen "ladder": an olive tree with numbered pegs, a climbing sage and the star of the
+   Tanakh in its crown; plus the gold victory wreath of the result screen.
+   CH.ladder.create(container, { steps, level }) · CH.wreath.create(container)   (see docs/ARCHITECTURE.md) */
+(function (CH) {
+  'use strict';
+
+  const W = 360, H = 880;                     // design size in stage px (the scene is scaled to fit its container)
+  const G = 846;                              // feet at level 0 (top of the mound)
+  const TOP = 374;                            // feet on the highest rung
+  const STAR = { x: 180, y: 52 };
+  const D2R = Math.PI / 180;
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const f1 = (v) => Math.round(v * 10) / 10;
+  const reduced = !!(CH.u && CH.u.reduced);
+  let seq = 0;
+
+  function rng(seed) {                        // mulberry32 — the tree is identical on every screen
+    return function () {
+      seed = (seed + 0x6d2b79f5) | 0;
+      let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  const el = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html) e.innerHTML = html; return e; };
+
+  /** Catmull-Rom spline through points → SVG path data. */
+  function smooth(p, closed = false, k = 1 / 6) {
+    const n = p.length;
+    const at = (i) => (closed ? p[(i + n) % n] : p[clamp(i, 0, n - 1)]);
+    let d = `M${f1(p[0][0])} ${f1(p[0][1])}`;
+    for (let i = 0, segs = closed ? n : n - 1; i < segs; i++) {
+      const p0 = at(i - 1), p1 = at(i), p2 = at(i + 1), p3 = at(i + 2);
+      d += `C${f1(p1[0] + (p2[0] - p0[0]) * k)} ${f1(p1[1] + (p2[1] - p0[1]) * k)} ` +
+        `${f1(p2[0] - (p3[0] - p1[0]) * k)} ${f1(p2[1] - (p3[1] - p1[1]) * k)} ${f1(p2[0])} ${f1(p2[1])}`;
+    }
+    return d + (closed ? 'Z' : '');
+  }
+  /** Tapered tube around a centre line (branches, roots). width(t) with t 0→1 along the line. */
+  function taper(c, width) {
+    const n = c.length, L = [], R = [];
+    for (let i = 0; i < n; i++) {
+      const a = c[Math.max(0, i - 1)], b = c[Math.min(n - 1, i + 1)];
+      let dx = b[0] - a[0], dy = b[1] - a[1];
+      const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
+      const w = width(i / (n - 1)) / 2;
+      L.push([c[i][0] - dy * w, c[i][1] + dx * w]); R.push([c[i][0] + dy * w, c[i][1] - dx * w]);
+    }
+    const tip = c[n - 1];
+    return smooth(L.concat([tip], R.reverse()), true);
+  }
+  /** Leafy foliage clump: scalloped blob. */
+  function blob(x, y, r, rnd, bump = 7) {
+    const m = Math.max(7, Math.round((2 * Math.PI * r) / (bump * 2.3)));
+    const a0 = rnd() * Math.PI * 2, step = (2 * Math.PI) / m, pts = [];
+    for (let j = 0; j < m; j++) {
+      const a = a0 + (j + (rnd() - 0.5) * 0.3) * step, rr = r * (0.88 + rnd() * 0.08);
+      pts.push([x + Math.cos(a) * rr, y + Math.sin(a) * rr, a, rr]);
+    }
+    let d = `M${f1(pts[0][0])} ${f1(pts[0][1])}`;
+    for (let j = 0; j < m; j++) {
+      const p = pts[j], q = pts[(j + 1) % m], a = a0 + (j + 0.5) * step, ro = Math.max(p[3], q[3]) * (1.1 + rnd() * 0.07);
+      d += `Q${f1(x + Math.cos(a) * ro)} ${f1(y + Math.sin(a) * ro)} ${f1(q[0])} ${f1(q[1])}`;
+    }
+    return d + 'Z';
+  }
+
+  // ================================================================ tree geometry
+  const tcx = (y) => { const t = (y - 260) / 600; return 176 - 13 * Math.sin(t * Math.PI * 1.1) + 6 * t; };   // trunk centre
+  const thw = (y) => { const t = clamp((y - 260) / 600, 0, 1); return 20 + 13 * t + 30 * Math.pow(Math.max(0, (y - 772) / 80), 2); };
+  const rungY = (i, n) => (n === 1 ? (G + TOP) / 2 + 20 : G - ((G - TOP) * i) / n);
+  /** Where the sage's feet are at level k. */
+  function feetAt(k, n) {
+    if (k <= 0) return { x: 252, y: G };
+    const y = rungY(Math.min(k, n), n);
+    return { x: tcx(y + 5) + thw(y + 5) + 17, y };
+  }
+
+  // ---------------------------------------------------------------- trunk, roots, mound (static, cached)
+  let TREE = null;
+  function treeMarkup() {
+    if (TREE) return TREE;
+    const rnd = rng(1948);
+    let defs = '', s = '';
+    defs += '<linearGradient id="@bark" gradientUnits="userSpaceOnUse" x1="128" y1="0" x2="232" y2="0">' +
+      '<stop offset="0" stop-color="#c79a6c"/><stop offset=".16" stop-color="#9c7049"/><stop offset=".45" stop-color="#76513a"/>' +
+      '<stop offset=".78" stop-color="#4b3123"/><stop offset=".93" stop-color="#3a2a26"/><stop offset="1" stop-color="#5d6f8f"/></linearGradient>';
+    defs += '<linearGradient id="@shade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#140b06" stop-opacity=".75"/>' +
+      '<stop offset=".55" stop-color="#140b06" stop-opacity=".18"/><stop offset="1" stop-color="#140b06" stop-opacity="0"/></linearGradient>';
+    defs += '<linearGradient id="@mound" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fbf4f"/><stop offset=".18" stop-color="#3f9343"/>' +
+      '<stop offset=".55" stop-color="#22663a"/><stop offset="1" stop-color="#103a2a"/></linearGradient>';
+    defs += '<radialGradient id="@stone" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#fbf1da"/><stop offset=".55" stop-color="#dccaa3"/><stop offset="1" stop-color="#9c8763"/></radialGradient>';
+    defs += '<radialGradient id="@knot" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#1b0f08"/><stop offset=".6" stop-color="#3a2416"/><stop offset="1" stop-color="#8a6243"/></radialGradient>';
+    defs += '<radialGradient id="@cshadow" cx=".5" cy=".5" r=".5"><stop offset="0" stop-color="#06210f" stop-opacity=".55"/><stop offset="1" stop-color="#06210f" stop-opacity="0"/></radialGradient>';
+
+    // mound behind everything (extends below the box so it never shows a bottom edge)
+    const mtop = [];
+    for (let x = -30; x <= 390; x += 30) mtop.push([x, 838 + Math.pow((x - 182) / 200, 2) * 58 + (rnd() - 0.5) * 4]);
+    const moundD = smooth(mtop) + 'L390 970L-30 970Z';
+    s += `<path d="${moundD}" fill="url(#@mound)"/>`;
+    s += `<path d="${smooth(mtop)}" fill="none" stroke="#b9ec7a" stroke-opacity=".55" stroke-width="2.5"/>`;
+    // far stones
+    const stone = (x, y, w, h, rot) => `<g transform="translate(${x} ${y}) rotate(${rot})"><path d="M${-w} ${h * 0.35}C${-w} ${-h * 0.6} ${-w * 0.4} ${-h} ${w * 0.15} ${-h}C${w * 0.8} ${-h} ${w} ${-h * 0.4} ${w} ${h * 0.25}C${w} ${h * 0.8} ${-w} ${h * 0.9} ${-w} ${h * 0.35}Z" fill="url(#@stone)" stroke="#5e4c35" stroke-opacity=".55" stroke-width="1.4"/>` +
+      `<path d="M${-w * 0.55} ${-h * 0.45}C${-w * 0.2} ${-h * 0.75} ${w * 0.25} ${-h * 0.8} ${w * 0.5} ${-h * 0.55}" fill="none" stroke="#fff" stroke-opacity=".6" stroke-width="1.6" stroke-linecap="round"/></g>`;
+    s += stone(58, 872, 22, 15, -8) + stone(86, 880, 12, 9, 6) + stone(318, 870, 18, 12, 10);
+
+    // crown shadow cast on the mound
+    s += '<ellipse cx="186" cy="852" rx="120" ry="16" fill="url(#@cshadow)"/>';
+
+    // roots
+    const cxB = tcx(846);
+    const roots = [
+      [[[cxB - 22, 812], [cxB - 52, 838], [cxB - 92, 852], [cxB - 128, 858]], 30],
+      [[[cxB + 24, 810], [cxB + 56, 836], [cxB + 96, 850], [cxB + 130, 856]], 28],
+      [[[cxB - 10, 830], [cxB - 28, 856], [cxB - 40, 876], [cxB - 46, 896]], 24],
+      [[[cxB + 14, 832], [cxB + 30, 858], [cxB + 36, 880], [cxB + 40, 900]], 22],
+    ];
+    const rootPaths = roots.map(([pts, w]) => taper(pts, (t) => lerp(w, 3, Math.pow(t, 0.8))));
+
+    // trunk
+    const cl = [];
+    for (let y = 900; y >= 252; y -= 24) cl.push([tcx(y), y]);
+    const trunkD = taper(cl, (t) => thw(lerp(900, 252, t)) * 2);
+
+    // branches into the crown (behind the front foliage)
+    const yb = 300, bx = tcx(yb);
+    const branches = [
+      [[[bx - 4, yb + 40], [bx - 26, yb - 10], [bx - 62, yb - 62], [bx - 98, yb - 98], [bx - 120, yb - 118]], 26],
+      [[[bx + 6, yb + 40], [bx + 26, yb - 12], [bx + 58, yb - 64], [bx + 92, yb - 108], [bx + 108, yb - 126]], 24],
+      [[[bx, yb + 20], [bx + 6, yb - 40], [bx + 2, yb - 100], [bx + 8, yb - 160], [bx + 4, yb - 196]], 26],
+      [[[bx - 40, yb - 50], [bx - 52, yb - 92], [bx - 50, yb - 140]], 10],
+      [[[bx + 50, yb - 60], [bx + 70, yb - 98], [bx + 66, yb - 150]], 10],
+    ];
+    const brD = branches.map(([pts, w]) => taper(pts, (t) => lerp(w, 4, t)));
+    s += brD.map((d) => `<path d="${d}" fill="url(#@bark)" stroke="#2a180e" stroke-opacity=".6" stroke-width="1.4"/>`).join('');
+
+    const allWood = [trunkD, ...rootPaths];
+    s += allWood.map((d) => `<path d="${d}" fill="url(#@bark)"/>`).join('');
+
+    // bark: long twisting fissures (dark) and lit ridges (light), clipped to the trunk
+    let fis = '', lit = '';
+    for (let i = 0; i < 15; i++) {
+      const u0 = -0.86 + (i / 14) * 1.72, ph = rnd() * 6, y0 = 300 + rnd() * 260, len = 140 + rnd() * 260, pts = [];
+      for (let y = y0; y <= Math.min(860, y0 + len); y += 16) {
+        const u = clamp(u0 + 0.13 * Math.sin(y / 70 + ph) + (rnd() - 0.5) * 0.03, -0.95, 0.95);
+        pts.push([tcx(y) + u * thw(y), y]);
+      }
+      if (pts.length < 3) continue;
+      const d = smooth(pts);
+      fis += `<path d="${d}" stroke-width="${f1(1.6 + rnd() * 2)}" stroke-opacity="${f1(0.28 + rnd() * 0.3)}"/>`;
+      if (u0 < 0.2) lit += `<path d="${d}" transform="translate(-2.6 0)" stroke-width="${f1(1 + rnd())}" stroke-opacity="${f1(0.18 + rnd() * 0.2)}"/>`;
+    }
+    s += '<clipPath id="@tclip">' + allWood.map((d) => `<path d="${d}"/>`).join('') + '</clipPath>';
+    s += `<g clip-path="url(#@tclip)" fill="none" stroke-linecap="round"><g stroke="#ffd9a6">${lit}</g><g stroke="#1e1009">${fis}</g>`;
+    // knots
+    [[tcx(548) - 8, 548, 9, 13], [tcx(700) + 12, 700, 6, 8]].forEach(([x, y, rx, ry]) => {
+      s += `<ellipse cx="${f1(x)}" cy="${y}" rx="${rx + 4}" ry="${ry + 4}" fill="none" stroke="#2a180e" stroke-opacity=".4" stroke-width="2"/>` +
+        `<ellipse cx="${f1(x)}" cy="${y}" rx="${rx}" ry="${ry}" fill="url(#@knot)"/>` +
+        `<path d="M${f1(x - rx)} ${y - 2}a${rx} ${ry} 0 0 1 ${rx * 2} 0" fill="none" stroke="#e6b98a" stroke-opacity=".5" stroke-width="1.5"/>`;
+    });
+    // crown shade over the top of the trunk + cool sky rim on the right edge
+    s += `<rect x="100" y="250" width="160" height="190" fill="url(#@shade)"/>`;
+    s += '</g>';
+    const rim = [];
+    for (let y = 330; y <= 800; y += 20) rim.push([tcx(y) + thw(y) - 2.2, y]);
+    s += `<path d="${smooth(rim)}" fill="none" stroke="#9fdcff" stroke-opacity=".38" stroke-width="2.2" stroke-linecap="round"/>`;
+    const rimL = [];
+    for (let y = 360; y <= 790; y += 20) rimL.push([tcx(y) - thw(y) + 2.4, y]);
+    s += `<path d="${smooth(rimL)}" fill="none" stroke="#ffe0b0" stroke-opacity=".35" stroke-width="2" stroke-linecap="round"/>`;
+    s += `<path d="${trunkD}" fill="none" stroke="#24140b" stroke-opacity=".75" stroke-width="1.6"/>`;
+    s += rootPaths.map((d) => `<path d="${d}" fill="none" stroke="#24140b" stroke-opacity=".6" stroke-width="1.4"/>`).join('');
+
+    // grass tufts in front of the roots, anemones, a little chamomile
+    const tuft = (x, y, sc, col) => {
+      let d = '';
+      for (let i = 0; i < 6; i++) {
+        const a = -70 + i * 28 + (rnd() - 0.5) * 16, l = (11 + rnd() * 9) * sc, bx2 = x + (i - 2.5) * 2.4 * sc;
+        const tx = bx2 + Math.sin(a * D2R) * l, ty = y - Math.cos(a * D2R) * l;
+        d += `M${f1(bx2 - 1.6 * sc)} ${y}Q${f1((bx2 + tx) / 2 - 1)} ${f1((y + ty) / 2)} ${f1(tx)} ${f1(ty)}Q${f1((bx2 + tx) / 2 + 1.5)} ${f1((y + ty) / 2 + 1)} ${f1(bx2 + 1.6 * sc)} ${y}Z`;
+      }
+      return `<path d="${d}" fill="${col}"/>`;
+    };
+    [[22, 884, 1, '#5aa845'], [110, 862, 0.9, '#6dbb50'], [146, 868, 1.1, '#4f9a40'], [214, 870, 1, '#5fb048'],
+      [282, 858, 0.9, '#6dbb50'], [338, 880, 1.1, '#4a9440'], [176, 886, 1.2, '#3f8a3a'], [250, 884, 1.1, '#3f8a3a']]
+      .forEach(([x, y, sc, c]) => (s += tuft(x, y, sc, c)));
+    const anemone = (x, y, r, rot) => {
+      let p = '';
+      for (let i = 0; i < 6; i++) p += `<ellipse cx="0" cy="${-r * 0.62}" rx="${f1(r * 0.48)}" ry="${f1(r * 0.66)}" transform="rotate(${rot + i * 60})"/>`;
+      return `<path d="M${x} ${y + r}q-1 9 1 16" stroke="#2f7a3a" stroke-width="1.8" fill="none"/>` +
+        `<g transform="translate(${x} ${y})"><g fill="#e8343a" stroke="#8e1622" stroke-width=".8">${p}</g>` +
+        `<circle r="${f1(r * 0.36)}" fill="#22142e"/><circle cx="${f1(-r * 0.12)}" cy="${f1(-r * 0.14)}" r="${f1(r * 0.12)}" fill="#5a4a7a"/></g>`;
+    };
+    s += anemone(40, 856, 6.5, 8) + anemone(126, 860, 5.5, 22) + anemone(306, 854, 6, 40) + anemone(288, 874, 5, 15) + anemone(70, 893, 5.5, 30);
+    const daisy = (x, y, r) => {
+      let p = '';
+      for (let i = 0; i < 8; i++) p += `<ellipse cx="0" cy="${-r * 0.6}" rx="${f1(r * 0.24)}" ry="${f1(r * 0.5)}" transform="rotate(${i * 45})"/>`;
+      return `<g transform="translate(${x} ${y})"><g fill="#fffaf0">${p}</g><circle r="${f1(r * 0.3)}" fill="#f6c64e"/></g>`;
+    };
+    s += daisy(96, 878, 5) + daisy(232, 892, 4.5) + daisy(338, 862, 4);
+
+    TREE = { defs, body: s };
+    return TREE;
+  }
+
+  // ---------------------------------------------------------------- crown (back + front foliage, cached)
+  /** Foliage pad: an ellipse with a leafy scalloped top and a flatter, gently bumpy underside. */
+  function pad(x, y, rx, ry, rnd) {
+    const m = Math.max(10, Math.round((Math.PI * (rx + ry)) / 12.5));
+    const step = (2 * Math.PI) / m, a0 = rnd() * step, pts = [];
+    const ryAt = (a) => (Math.sin(a) < 0 ? ry : ry * 0.8);
+    for (let j = 0; j < m; j++) {
+      const a = a0 + (j + (rnd() - 0.5) * 0.35) * step, k = 0.93 + rnd() * 0.06;
+      pts.push([x + Math.cos(a) * rx * k, y + Math.sin(a) * ryAt(a) * k]);
+    }
+    let d = `M${f1(pts[0][0])} ${f1(pts[0][1])}`;
+    for (let j = 0; j < m; j++) {
+      const q = pts[(j + 1) % m], a = a0 + (j + 0.5) * step, top = Math.sin(a) < 0;
+      const b = (top ? 1.13 : 1.05) + rnd() * 0.05;
+      d += `Q${f1(x + Math.cos(a) * rx * b)} ${f1(y + Math.sin(a) * ryAt(a) * b)} ${f1(q[0])} ${f1(q[1])}`;
+    }
+    return d + 'Z';
+  }
+  let CROWN = null;
+  function crownMarkup() {
+    if (CROWN) return CROWN;
+    const rnd = rng(613);
+    let defs = '<path id="@lf" d="M0 0C3.4-2.4 8.8-2.6 14 0C8.8 2.6 3.4 2.4 0 0Z"/>';
+    const vg = (id, stops) => `<linearGradient id="@${id}" x1="0" y1="0" x2=".22" y2="1">${stops.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('')}</linearGradient>`;
+    defs += vg('fb', [[0, '#3f7d52'], [0.45, '#22573d'], [1, '#0f3123']]);
+    defs += vg('fm', [[0, '#8cc46a'], [0.3, '#4f9447'], [0.75, '#2a6439'], [1, '#1a4730']]);
+    defs += vg('ff', [[0, '#c6e68c'], [0.28, '#7ab857'], [0.7, '#3f8541'], [1, '#245a34']]);
+
+    const pads = (list, grad, rim, rimOp) => list.map(([x, y, rx, ry]) => {
+      const d = pad(x, y, rx, ry, rnd);
+      return `<path d="${d}" fill="${rim}" fill-opacity="${rimOp}" transform="translate(-1.6 -3)"/><path d="${d}" fill="url(#@${grad})"/>`;
+    }).join('');
+    // leaves: bright ones fanning out of the lit top edge, dark ones hanging under the shaded bottom
+    const leaves = (list, nTop, nBot, topCols, botCols) => {
+      let o = '';
+      list.forEach(([x, y, rx, ry]) => {
+        for (let i = 0; i < nTop + nBot; i++) {
+          const top = i < nTop;
+          const a = top ? (-170 + rnd() * 160) * D2R : (25 + rnd() * 130) * D2R;
+          const k = top ? 0.86 + rnd() * 0.2 : 0.7 + rnd() * 0.16;
+          const px = x + Math.cos(a) * rx * k, py = y + Math.sin(a) * (top ? ry : ry * 0.8) * k;
+          const rot = a / D2R + (rnd() - 0.5) * 60, sc = (top ? 0.8 : 0.7) + rnd() * 0.4;
+          const cols = top ? topCols : botCols;
+          o += `<use href="#@lf" transform="translate(${f1(px)} ${f1(py)}) rotate(${f1(rot)}) scale(${f1(sc * 100) / 100})" fill="${cols[(rnd() * cols.length) | 0]}"/>`;
+        }
+      });
+      return o;
+    };
+    // silvery olive sprays sitting on the lit tops
+    const sprays = (list, n) => {
+      let o = '';
+      list.forEach(([x, y, rx, ry]) => {
+        for (let i = 0; i < n; i++) {
+          const px = x + (rnd() - 0.65) * rx * 1.1, py = y - ry * (0.25 + rnd() * 0.45);
+          for (let j = 0; j < 3; j++) {
+            o += `<use href="#@lf" transform="translate(${f1(px)} ${f1(py)}) rotate(${f1(-150 + j * 50 + (rnd() - 0.5) * 30)}) scale(${f1(55 + rnd() * 25) / 100})" fill="${['#e4f2c6', '#cfe6a4', '#b4d88a'][j]}" fill-opacity=".85"/>`;
+          }
+        }
+      });
+      return o;
+    };
+
+    const back = [[182, 96, 96, 64], [94, 152, 88, 60], [268, 148, 90, 60], [56, 222, 62, 50], [304, 222, 62, 50],
+      [180, 196, 122, 84], [118, 276, 84, 46], [244, 278, 84, 46]];
+    const mid = [[180, 80, 70, 42], [110, 128, 68, 42], [252, 124, 70, 44], [54, 190, 50, 36], [306, 192, 50, 36],
+      [150, 182, 72, 42], [238, 186, 68, 42], [92, 244, 64, 38], [272, 248, 62, 38]];
+    const front = [[138, 114, 48, 28], [228, 106, 50, 28], [74, 172, 44, 28], [292, 170, 44, 28], [182, 152, 54, 30],
+      [122, 226, 56, 30], [244, 228, 56, 30], [180, 288, 66, 32], [58, 256, 40, 24], [304, 256, 40, 24]];
+
+    let b = pads(back, 'fb', '#a6e1ff', 0.55);
+    b += leaves(back, 6, 3, ['#3e7d52', '#4f8f5e', '#8fcfee'], ['#123a28', '#1a4632']);
+    b += pads(mid, 'fm', '#d7f0a8', 0.5);
+    b += leaves(mid, 7, 4, ['#7fbb5c', '#98cd6c', '#5e9e4c'], ['#1d4b31', '#24563a']);
+    let f = pads(front, 'ff', '#f1ffcf', 0.6);
+    f += leaves(front, 9, 5, ['#a9d872', '#c2e48c', '#86c25c', '#dcefb4'], ['#2a6038', '#235532', '#2f6a3c']);
+    f += sprays(front.concat(mid.slice(0, 3)), 2);
+    CROWN = { defs, back: b, front: f };
+    return CROWN;
+  }
+
+  // ---------------------------------------------------------------- star (emblem in a gold glow) and book-cubes
+  function starInner() {
+    try { if (CH.art && CH.art.emblem) return CH.art.emblem({ shaded: true }); } catch (e) { console.error(e); }
+    return hexagram();
+  }
+  function hexagram() {
+    const id = 'lhx' + (++seq);
+    const tri = (r, a0) => [0, 1, 2].map((i) => { const a = (a0 + i * 120) * D2R; return `${f1(50 + r * Math.cos(a))},${f1(50 + r * Math.sin(a))}`; }).join(' ');
+    return `<svg viewBox="0 0 100 100"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1bf"/><stop offset=".45" stop-color="#ffd56a"/><stop offset="1" stop-color="#c98a1e"/></linearGradient></defs>` +
+      `<g fill="url(#${id})" stroke="#8f5c12" stroke-width="2" stroke-linejoin="round"><polygon points="${tri(46, -90)}"/><polygon points="${tri(46, 90)}"/></g>` +
+      `<circle cx="50" cy="50" r="12" fill="#fff6d6" fill-opacity=".55"/></svg>`;
+  }
+  const CUBE_COLORS = ['#e63a35', '#3db54a', '#ec4f9c', '#17b8c4', '#f7941d', '#2a6fd6'];
+  const LETTERS = ['א', 'ב', 'ת', 'ש', 'ה', 'ל'];
+  function cubeSVG(i) {
+    try { if (CH.art && CH.art.bookCube) return CH.art.bookCube(i % 6, { letter: LETTERS[i % 6], size: 100 }); } catch (e) { console.error(e); }
+    const c = CUBE_COLORS[i % 6];
+    return `<svg viewBox="0 0 100 100"><path d="M50 8 88 30 50 52 12 30Z" fill="${c}"/><path d="M12 30 50 52V94L12 72Z" fill="${c}" opacity=".78"/>` +
+      `<path d="M88 30 50 52V94L88 72Z" fill="#f4ead2"/><path d="M50 8 88 30 50 52 12 30Z" fill="#fff" fill-opacity=".22"/>` +
+      '<path d="M50 8 88 30V72L50 94 12 72V30Z" fill="none" stroke="#0a1a40" stroke-opacity=".35" stroke-width="2"/></svg>';
+  }
+
+  // ================================================================ the sage (rigged SVG)
+  // Local units: origin at the feet, facing left (−x). Angles: positive = forward (toward the trunk) for limbs,
+  // forward lean for the torso, chin-up for the head.
+  const LEG = { thigh: 27, shin: 25, foot: 6.5 };
+  function sageSVG(id) {
+    const lg = (n, x1, y1, x2, y2, stops) => `<linearGradient id="${id}${n}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">` +
+      stops.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('') + '</linearGradient>';
+    const rg = (n, cx, cy, r, stops) => `<radialGradient id="${id}${n}" cx="${cx}" cy="${cy}" r="${r}">` +
+      stops.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('') + '</radialGradient>';
+    const defs =
+      lg('rb', 0, 0, 1, 1, [[0, '#7cc0ff'], [0.35, '#3d8ff0'], [1, '#1d4fb0']]) +          // robe (near)
+      lg('rk', 0, 0, 1, 1, [[0, '#3f7fd8'], [1, '#173f8f']]) +                              // robe (far)
+      lg('sk', 0, 0, 0, 1, [[0, '#2f6fd0'], [1, '#1a438f']]) +                              // skirt back panel
+      lg('gd', 0, 0, 0, 1, [[0, '#fff1bf'], [0.45, '#f6c64e'], [1, '#b97a18']]) +           // gold
+      rg('sn', 0.4, 0.35, 0.75, [[0, '#ffdcc0'], [0.6, '#f2b48c'], [1, '#d68e66']]) +      // skin
+      lg('sf', 0, 0, 1, 0, [[0, '#e9a985'], [1, '#c9805e']]) +                              // skin (far limbs)
+      lg('bd', 0, 0, 0.3, 1, [[0, '#ffffff'], [0.55, '#eef3fb'], [1, '#bccbe2']]) +         // beard
+      lg('cl', 0, 0, 1, 1, [[0, '#fffaf0'], [0.6, '#f1e4c6'], [1, '#d3bd8f']]) +           // head cloth
+      lg('sd', 0, 0, 0, 1, [[0, '#9a6236'], [1, '#5a3218']]);                               // sandal
+
+    const shin = (far) => `<path class="ol" d="M-4.4 -1C-4.8 8-4.1 17-3.6 25.5L3.6 25.5C4.1 17 4.8 8 4.4-1Z" fill="url(#${id}${far ? 'sf' : 'sn'})"/>` +
+      '<path d="M-4 13 4 17.5M-3.9 18.5 3.9 14M-3.7 23 3.7 21.5" stroke="#6a3a1a" stroke-width="1.7" stroke-linecap="round" fill="none"/>';
+    const foot = (far) => `<path class="ol" d="M3.6-1.5C4 3 3 5.2-1 5.4L-14 5.4C-17.6 5.4-18.6 1.6-15.4-.4C-11.4-2.6-6-3.4-2.4-4.6Z" fill="url(#${id}${far ? 'sf' : 'sn'})"/>` +
+      `<path class="ol" d="M4.4 4.4 4.4 7.2Q-6 8.4-17.6 7.2Q-19.2 6-17.4 4.6Z" fill="url(#${id}sd)"/>` +
+      '<path d="M-9.5-1.6-8.6 5.2M-3 -3 -2.6 5.2" stroke="#6a3a1a" stroke-width="2" stroke-linecap="round"/>';
+    const thigh = (far) => `<path class="ol" d="M-11.5-7C-12.6 5-11.4 17-10.4 28.5Q0 31.6 10.4 28.5C11.4 17 12.6 5 11.5-7Z" fill="url(#${id}${far ? 'rk' : 'rb'})"/>` +
+      `<path d="M-10.6 24.6Q0 27.6 10.6 24.6L10.5 28.6Q0 31.6-10.5 28.6Z" fill="url(#${id}gd)"/>` +
+      '<path d="M-3 2C-2 10-2.5 16-4 21" stroke="#0d2a6a" stroke-opacity=".3" stroke-width="1.6" fill="none" stroke-linecap="round"/>';
+    const upper = (far) => `<path class="ol" d="M-7.2-4C-7.8 5-7.2 13-6.6 21.5L6.6 21.5C7.2 13 7.8 5 7.2-4C5-9.6-5-9.6-7.2-4Z" fill="url(#${id}${far ? 'rk' : 'rb'})"/>`;
+    const fore = (far) => `<path class="ol" d="M-6.6-1C-7.2 6-8.2 12-9.4 18.6L9.4 18.6C8.2 12 7.2 6 6.6-1Z" fill="url(#${id}${far ? 'rk' : 'rb'})"/>` +
+      `<path d="M-8.9 15.4 8.9 15.4 9.4 18.6-9.4 18.6Z" fill="url(#${id}gd)"/>` +
+      `<g transform="translate(0 23)"><path class="ol" d="M-5.6-4.6C-7-1-6 4.6-.6 5.8C4.6 6.6 7 2 6-2.6C5.2-5.6 1.6-6.4-1-6.2C-3-6-4.8-5.6-5.6-4.6Z" fill="url(#${id}${far ? 'sf' : 'sn'})"/>` +
+      `<path class="ol" d="M-5.2-3C-8.6-3.4-10.2-.6-8.6 1.4C-7.4 2.6-5.6 2-4.6.6" fill="url(#${id}${far ? 'sf' : 'sn'})"/></g>`;
+    const arm = (key, far) => `<g data-j="${key}">${upper(far)}<g data-j="${key}2">${fore(far)}</g></g>`;
+    const leg = (key, far) => `<g data-j="${key}">${thigh(far)}<g data-j="${key}2">${shin(far)}<g data-j="${key}3">${foot(far)}</g></g></g>`;
+
+    // torso (pivot = hips)
+    const robe = `<path class="ol" d="M-15.5 4C-20-6-19.4-19-15-30.5C-12.4-37.6-6.4-42.4 2-42.4C10.6-42.4 16.8-38 18.4-29.6C20.4-17.6 18.4-6 16 4Z" fill="url(#${id}rb)"/>` +
+      '<path d="M5-36C8-24 8-10 6 2M-6-30C-8-20-8.6-10-8 0" stroke="#0d2a6a" stroke-opacity=".28" stroke-width="1.6" fill="none" stroke-linecap="round"/>' +
+      '<path d="M15.6-30C17.6-18 17-7 15 2" stroke="#a9dcff" stroke-opacity=".55" stroke-width="1.8" fill="none" stroke-linecap="round"/>';
+    const skirt = `<path class="ol" d="M-14 0C-16.2 10-17.4 22-18.2 33Q0 37.4 19.2 33C18.4 22 17.4 10 15.6 0Z" fill="url(#${id}sk)"/>` +
+      `<path d="M-17.8 29.2Q0 33.4 18.8 29.2L19.2 33Q0 37.4-18.2 33Z" fill="url(#${id}gd)"/>`;
+    const sash = `<path class="ol" d="M-17.6-8.6Q0-5 17.6-9L18 .6Q0 4.4-17.2 .8Z" fill="url(#${id}gd)"/>` +
+      '<path d="M-17-4.4Q0-.8 17.8-4.6" stroke="#c0392b" stroke-width="1.6" fill="none"/>' +
+      `<path class="ol" d="M-14.6-2C-17.4 6-18.6 13-17 20L-13 19.4C-13.6 13-12.4 6-10.4-1Z" fill="url(#${id}gd)"/>` +
+      `<path class="ol" d="M-10.8-1.6C-11.4 5-10 11-7.6 16.8L-4.4 15.4C-6.4 9.6-7 4.4-6.6-1.2Z" fill="url(#${id}gd)"/>` +
+      `<ellipse class="ol" cx="-12.6" cy="-3.6" rx="4.4" ry="4" fill="url(#${id}gd)"/>`;
+    const collar = '<path d="M-9.2-40.6-1.6-30.4 5.4-41.4Q-2-43.6-9.2-40.6Z" fill="#f5efe2" stroke="#1b1238" stroke-width="1.6" stroke-linejoin="round"/>';
+
+    // head (pivot = neck)
+    const drape = `<path class="ol" d="M3-50C17-50 24.6-36 24-16C23.6-4 21-.4 16.8 4.6L6.4 2.6C8.6-8 7.6-24 2.6-34Z" fill="url(#${id}cl)"/>` +
+      '<path d="M14-36C17-24 17-10 14.6 0" stroke="#b49a68" stroke-opacity=".6" stroke-width="1.5" fill="none" stroke-linecap="round"/>';
+    const face = `<path class="ol" d="M-17.6-27C-19.6-36-12.4-43.6-2.6-43.6C7.6-43.6 13.6-36.4 13.4-26C13.2-15.4 6-8.4-3-8.4C-11.6-8.4-16.4-15.6-17.6-27Z" fill="url(#${id}sn)"/>` +
+      '<ellipse cx="-7" cy="-17.6" rx="5.2" ry="3.6" fill="#ff7f72" fill-opacity=".42"/>';
+    const beard = `<g data-j="beard"><path class="ol" d="M14.2-12.4C15.4 2 12 16 4.6 28C1.4 33-1.4 37-4.6 42.4C-6 36.2-9.6 32-11.6 26.4C-15.2 30-17.6 30.8-19.4 30.4C-19.2 24-21 18-24.2 12.6C-27.4 7-26.4-1.6-23.6-6.4C-17.8-2.6-10.4-3.4-4.4-6.8C2.4-10.6 9.4-12.6 14.2-12.4Z" fill="url(#${id}bd)"/>` +
+      '<path d="M5-4C6 8 3 19-2 30M-6-3C-6 8-8 16-10 23M-15-1C-16 7-18 13-20 18M10-6C11 4 9 12 6 20" stroke="#9fb3d4" stroke-opacity=".65" stroke-width="1.3" fill="none" stroke-linecap="round"/>' +
+      '<path d="M-21-4C-20 4-19 10-20 15" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" opacity=".9"/></g>';
+    const mouth = '<path class="cl-smile" d="M-19.6-10.2Q-15.6-6.6-11.2-9.4" stroke="#6b2a2a" stroke-width="1.8" fill="none" stroke-linecap="round"/>' +
+      '<path class="cl-open ol" d="M-21-11.4Q-15.6-9.6-10.4-11.6Q-11.6-3.6-16-3.6Q-20-3.6-21-11.4Z" fill="#7a2230"/>' +
+      '<path class="cl-open" d="M-18.6-6.2Q-15.8-7.8-12.8-6.2Q-14-4.2-15.8-4.2Q-17.6-4.2-18.6-6.2Z" fill="#ff8f8f"/>';
+    const stache = '<path class="ol" d="M-24.2-11.6C-25-15.6-21.6-18.4-17.6-16.4C-15.4-18.6-11-18.4-8.6-15.6C-6-16.4-3.2-14.6-3.4-12C-6.4-10.6-9.4-11-11.6-12.4C-14-10.6-17.6-10.4-19.6-12.2C-21-10.6-23.2-10.4-24.2-11.6Z" fill="url(#' + id + 'bd)"/>';
+    const nose = `<path class="ol" d="M-14.6-24.2C-19.6-25.4-25.4-22.4-25-17.6C-24.6-13.6-19.6-12.4-15.6-14.6Z" fill="url(#${id}sn)"/>` +
+      '<ellipse cx="-21.6" cy="-20.4" rx="1.8" ry="1.3" fill="#fff" fill-opacity=".7"/>';
+    const eye = '<g class="cl-eye"><ellipse cx="-9.4" cy="-27.2" rx="2.5" ry="3.3" fill="#1b1238"/><circle cx="-10.2" cy="-28.4" r="1" fill="#fff"/></g>' +
+      '<path class="cl-happy" d="M-12.8-26.4Q-9.4-30.8-6-26.4" stroke="#1b1238" stroke-width="2" fill="none" stroke-linecap="round"/>' +
+      '<path d="M-3.6-23C-2.8-21-3-19.6-4-18.6" stroke="#b86a4a" stroke-opacity=".55" stroke-width="1.2" fill="none" stroke-linecap="round"/>';
+    const brow = '<path class="ol" d="M-15.4-31.6C-14.6-35.6-8.8-37.2-4.2-34.6C-2.8-33.6-2.8-32-4.4-31.4C-7.8-32.4-11.6-32-15.4-31.6Z" fill="#fff"/>';
+    const wrap = `<path class="ol" d="M-19.2-30C-21.4-42-12.6-53 1-53.2C14-53.4 22.6-45 22.4-33.2C22.2-27 19.6-21 17-16.4L8.6-17.6C9.6-25 6.4-31.6-.4-33.6C-6.6-35.4-13.8-33.6-19.2-30Z" fill="url(#${id}cl)"/>` +
+      '<path d="M-6-50C-1-45 3-40 5-33M6-52C11-46 14-40 15-30" stroke="#b49a68" stroke-opacity=".55" stroke-width="1.4" fill="none" stroke-linecap="round"/>' +
+      '<path d="M-17.8-38C-14-50 4-56 16-46" stroke="#fff" stroke-opacity=".75" stroke-width="2" fill="none" stroke-linecap="round"/>' +
+      '<path class="ol" d="M-20-32.6C-13-37.6-2-38.4 6.6-34.6C12-32.2 16.6-28.6 20-23.4L19-19.6C15.6-24.6 11-28 5.4-30.4C-2.6-33.6-12.6-33-19.2-28.6Z" fill="#2a6fd6"/>' +
+      `<path d="M-19.4-31.4C-12.6-35.4-2.6-36.2 5.6-32.8C10.8-30.6 15.4-27.2 19-22.4" stroke="url(#${id}gd)" stroke-width="1.6" fill="none" stroke-dasharray="3.2 2.2"/>`;
+
+    return `<svg class="lad-sage" viewBox="-90 -190 180 210" width="180" height="210" overflow="visible" aria-hidden="true"><defs>${defs}</defs>` +
+      '<ellipse class="cl-ground" cx="2" cy="1" rx="30" ry="5.5" fill="#06210f" fill-opacity=".38"/>' +
+      '<g class="cl-root">' +
+      leg('legB', true) +
+      `<g data-j="torsoB"><g class="cl-breath">${arm('armB', true)}${skirt}${robe}${collar}</g></g>` +
+      leg('legF', false) +
+      `<g data-j="torsoF"><g class="cl-breath">${sash}<g data-j="head">${drape}${face}${beard}${mouth}${stache}${nose}${eye}${brow}${wrap}</g>${arm('armF', false)}</g></g>` +
+      '</g></svg>';
+  }
+
+  // Joint anchors (parent-relative translate) — hip y is solved per pose so the lower foot touches the ground.
+  const J = {
+    legF: [-2, 0], legF2: [0, LEG.thigh], legF3: [0, LEG.shin],
+    legB: [5, 0], legB2: [0, LEG.thigh], legB3: [0, LEG.shin],
+    torsoB: [2, 0], torsoF: [2, 0],
+    armF: [-3, -36], armF2: [0, 20.5], armB: [7, -37], armB2: [0, 20.5],
+    head: [-3, -41], beard: [-6, -10],
+  };
+  // Poses: lean, head, legs (thigh, shin, foot), arms (upper, elbow). Positive = forward.
+  const POSES = {
+    idle:   { lean: -5, head: 22, tF: 6, sF: -4, fF: 0, tB: -8, sB: 4, fB: 0, uF: -38, eF: 96, uB: 78, eB: 22 },
+    climbA: { lean: 9, head: 12, tF: 74, sF: -112, fF: 26, tB: 6, sB: -8, fB: 0, uF: 156, eF: 12, uB: 120, eB: 40 },
+    climbB: { lean: 9, head: 12, tF: 6, sF: -8, fF: 0, tB: 70, sB: -108, fB: 26, uF: 124, eF: 42, uB: 160, eB: 8 },
+    crouch: { lean: 16, head: 4, tF: 82, sF: -128, fF: 20, tB: 44, sB: -86, fB: 10, uF: 136, eF: 50, uB: 112, eB: 58 },
+    reach:  { lean: 4, head: 20, tF: 22, sF: -26, fF: -10, tB: -4, sB: -14, fB: -14, uF: 172, eF: 4, uB: 160, eB: 2 },
+    cheer:  { lean: -6, head: 16, tF: 4, sF: -4, fF: 0, tB: -10, sB: 6, fB: 0, uF: 152, eF: -22, uB: 206, eB: -26 },
+    cheerR: { lean: -4, head: 16, tF: 46, sF: -70, fF: 16, tB: 4, sB: -6, fB: 0, uF: 150, eF: -20, uB: 204, eB: -24 },
+  };
+  const KEYS = Object.keys(POSES.idle);
+  const blendPose = (a, b, t) => { const o = {}; KEYS.forEach((k) => (o[k] = lerp(a[k], b[k], t))); return o; };
+  const ease = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
+  function legDrop(t, s) {                       // vertical extent of a leg from hip to sole
+    const a = t * D2R, b = (t + s) * D2R;
+    return LEG.thigh * Math.cos(a) + LEG.shin * Math.cos(b) + LEG.foot;
+  }
+
+  // ================================================================ ladder instance
+  function create(container, opts = {}) {
+    const id = 'lad' + (++seq) + '_';
+    let N = clamp(Math.round(opts.steps || 4), 1, 15);
+    let level = clamp(Math.round(opts.level || 0), 0, N);
+    let destroyed = false, raf = 0, queue = Promise.resolve(), anim = null, cheerTimer = 0;
+
+    const root = el('div', 'ladder');
+    root.dataset.steps = N;
+    const scene = el('div', 'lad-scene');
+    root.append(scene);
+
+    const tree = treeMarkup(), crown = crownMarkup();
+    const sub = (s) => s.replace(/@/g, id);
+    const aura = el('div', 'lad-aura');
+    const crownB = el('div', 'lad-crown lad-crown-b', `<svg viewBox="0 0 ${W} 360" width="${W}" height="360" overflow="visible"><defs>${sub(crown.defs)}</defs>${sub(crown.back)}</svg>`);
+    const trunk = el('div', 'lad-trunk', `<svg viewBox="0 0 ${W} 960" width="${W}" height="960" overflow="visible"><defs>${sub(tree.defs)}</defs>${sub(tree.body)}</svg>`);
+    const crownF = el('div', 'lad-crown lad-crown-f', `<svg viewBox="0 0 ${W} 360" width="${W}" height="360" overflow="visible"><defs>${sub(crown.defs)}</defs>${sub(crown.front)}</svg>`);
+    const star = el('div', 'lad-star', '<i class="glow"></i><i class="rays"></i><i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i>');
+    const disc = el('div', 'disc', starInner());
+    star.append(disc);
+    const rungs = el('div', 'lad-rungs');
+    const orbit = el('div', 'lad-orbit');
+    const sage = el('div', 'lad-climber', sageSVG(id));
+    const fx = el('div', 'lad-fx');
+    scene.append(aura, crownB, trunk, crownF, star, rungs, orbit, sage, fx);
+    container.append(root);
+
+    // ---- fit the 360×880 design into the container (it is 360×880 in the game; anything else scales)
+    const fit = () => {
+      const w = container.clientWidth || W, h = container.clientHeight || H;
+      scene.style.setProperty('--lad-k', Math.min(w / W, h / H).toFixed(4));
+    };
+    fit();
+    let ro = null;
+    try { ro = new ResizeObserver(fit); ro.observe(container); } catch (e) { /* old engine */ }
+
+    // ---- book-cubes orbiting the crown (WAAPI keyframes sampled from a tilted ellipse; back half behind the crown)
+    const cubeAnims = [];
+    const NC = 6, PERIOD = 34000;
+    for (let i = 0; i < NC; i++) {
+      const c = el('div', 'lad-cube');
+      const inner = el('div', 'bob', cubeSVG(i));
+      inner.style.animationDelay = (-i * 1.37).toFixed(2) + 's';
+      inner.style.animationDuration = (5.2 + (i % 3) * 0.9).toFixed(1) + 's';
+      c.append(inner); orbit.append(c);
+      const frames = [], S = 48, tilt = -9 * D2R, rx = 186 - (i % 2) * 12, ry = 54 + (i % 3) * 8, cy = 186 + (i % 2) * 18;
+      for (let s = 0; s <= S; s++) {
+        const th = (s / S) * Math.PI * 2;
+        const ex = Math.cos(th) * rx, ey = Math.sin(th) * ry;
+        const x = 180 + ex * Math.cos(tilt) - ey * Math.sin(tilt), y = cy + ex * Math.sin(tilt) + ey * Math.cos(tilt);
+        const d = Math.sin(th), sc = 0.62 + 0.3 * (d + 1) / 2;
+        frames.push({ offset: s / S, transform: `translate(${f1(x - 26)}px, ${f1(y - 26)}px) scale(${sc.toFixed(3)})`, opacity: (0.7 + 0.3 * (d + 1) / 2).toFixed(3), zIndex: d > 0 ? 6 : 1 });
+      }
+      // sharpen the z-index flips so a cube never sits "between" layers
+      const keyed = [];
+      frames.forEach((f, k) => {
+        if (k && f.zIndex !== frames[k - 1].zIndex) keyed.push({ ...frames[k - 1], offset: f.offset, zIndex: f.zIndex });
+        keyed.push(f);
+      });
+      try {
+        const a = c.animate(keyed, { duration: PERIOD, iterations: Infinity, delay: -(i / NC) * PERIOD - 4000, easing: 'linear' });
+        cubeAnims.push(a);
+      } catch (e) { /* ignore */ }
+    }
+
+    // ---- rungs (pegs + badges)
+    let rungEls = [];
+    function buildRungs() {
+      rungs.innerHTML = '';
+      rungEls = [];
+      root.dataset.steps = N;
+      const r = N <= 4 ? 21 : N <= 8 ? 18 : N <= 12 ? 16 : 14.5;
+      const zig = N > 6;
+      for (let i = 1; i <= N; i++) {
+        const y = rungY(i, N), yc = y + 5, cx = tcx(yc), hw = thw(yc);
+        const alt = i % 2 ? 1 : -1;
+        const lenL = zig ? (alt > 0 ? 16 : 34) : 22, lenR = 26;
+        const rung = el('div', 'lad-rung');
+        const pegR = el('i', 'peg r');
+        Object.assign(pegR.style, { left: f1(cx + hw - 6) + 'px', top: f1(yc - 5.5) + 'px', width: lenR + 6 + 'px', transform: `rotate(${-6 + alt * 2}deg)` });
+        const pegL = el('i', 'peg l');
+        Object.assign(pegL.style, { left: f1(cx - hw - lenL) + 'px', top: f1(yc - 5.5) + 'px', width: lenL + 6 + 'px', transform: `rotate(${6 - alt * 2}deg)` });
+        const bx = cx - hw - lenL - r + 5, by = yc - (lenL * Math.sin((6 - alt * 2) * D2R)) + 1;
+        const glow = el('i', 'glow');
+        Object.assign(glow.style, { left: f1((bx + cx + hw + lenR) / 2) + 'px', top: f1(yc) + 'px', width: f1(cx + hw + lenR - bx + 40) + 'px' });
+        const badge = el('b', 'badge');
+        badge.textContent = String(i);
+        Object.assign(badge.style, { left: f1(bx) + 'px', top: f1(by) + 'px', '--r': r + 'px' });
+        rung.append(glow, pegL, pegR, badge);
+        rungs.append(rung);
+        rungEls.push({ rung, badge });
+      }
+      markRungs();
+    }
+    function markRungs(popAt) {
+      rungEls.forEach(({ rung, badge }, i) => {
+        const n = i + 1;
+        rung.classList.toggle('is-done', n <= level);
+        rung.classList.toggle('is-next', n === level + 1);
+        if (n === popAt && badge.animate && !reduced) {
+          badge.animate([{ transform: 'translate(-50%,-50%) scale(1)' }, { transform: 'translate(-50%,-50%) scale(1.45)', offset: 0.35 }, { transform: 'translate(-50%,-50%) scale(1)' }],
+            { duration: 620, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+        }
+      });
+      star.classList.toggle('is-lit', level >= N);
+    }
+
+    // ---- sage rig
+    const svg = sage.querySelector('svg');
+    const joints = {};
+    svg.querySelectorAll('[data-j]').forEach((g) => (joints[g.dataset.j] = g));
+    const st = { x: 0, y: 0, sx: 1, sy: 1, pose: { ...POSES.idle }, beard: 0, bv: 0 };
+    const setJ = (k, x, y, a) => { const g = joints[k]; if (g) g.setAttribute('transform', `translate(${f1(x)} ${f1(y)}) rotate(${f1(a)})`); };
+    function render() {
+      const p = st.pose;
+      const hip = -Math.max(legDrop(p.tF, p.sF), legDrop(p.tB, p.sB));
+      setJ('legF', J.legF[0], hip, p.tF); setJ('legF2', 0, LEG.thigh, p.sF); setJ('legF3', 0, LEG.shin, p.fF - p.tF - p.sF);
+      setJ('legB', J.legB[0], hip, p.tB); setJ('legB2', 0, LEG.thigh, p.sB); setJ('legB3', 0, LEG.shin, p.fB - p.tB - p.sB);
+      setJ('torsoB', J.torsoB[0], hip, p.lean); setJ('torsoF', J.torsoF[0], hip, p.lean);
+      setJ('armF', J.armF[0], J.armF[1], p.uF); setJ('armF2', 0, J.armF2[1], p.eF);
+      setJ('armB', J.armB[0], J.armB[1], p.uB); setJ('armB2', 0, J.armB2[1], p.eB);
+      setJ('head', J.head[0], J.head[1], p.head);
+      setJ('beard', J.beard[0], J.beard[1], st.beard);
+      sage.style.transform = `translate3d(${f1(st.x - 90)}px, ${f1(st.y - 190)}px, 0) scale(${st.sx.toFixed(3)}, ${st.sy.toFixed(3)})`;
+    }
+    const restPose = (k) => (k <= 0 ? POSES.idle : k % 2 ? POSES.climbA : POSES.climbB);
+    function place(k) {
+      const f = feetAt(k, N);
+      st.x = f.x; st.y = f.y; st.sx = st.sy = 1; st.beard = 0; st.bv = 0;
+      st.pose = { ...restPose(k) };
+      sage.classList.toggle('on-ground', k <= 0);
+      svg.classList.remove('is-cheer');
+      render();
+    }
+
+    // ---- animation driver (one rAF loop per instance, only while something moves)
+    function stop() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      if (anim) { const a = anim; anim = null; a.done(); }
+    }
+    function run(step) {
+      return new Promise((resolve) => {
+        stop();
+        let last = performance.now();
+        const t0 = last;
+        anim = { done: resolve };
+        const frame = (now) => {
+          if (destroyed) { resolve(); return; }
+          const dt = Math.min(0.05, (now - last) / 1000); last = now;
+          const finished = step((now - t0) / 1000, dt);
+          render();
+          if (finished) { raf = 0; anim = null; resolve(); } else raf = requestAnimationFrame(frame);
+        };
+        raf = requestAnimationFrame(frame);
+      });
+    }
+    // beard: damped spring driven by vertical velocity
+    function beardStep(vy, dt) {
+      const target = clamp(vy * 0.018, -16, 16);
+      for (let h = dt / 4, i = 0; i < 4; i++) { st.bv += (-(st.beard - target) * 180 - st.bv * 14) * h; st.beard += st.bv * h; }
+    }
+
+    /** Spring jump from the current spot to level `to`. */
+    function jump(to) {
+      const from = { x: st.x, y: st.y }, dst = feetAt(to, N), startPose = { ...st.pose }, endPose = restPose(to);
+      const up = dst.y < from.y, SQ = reduced ? 0.01 : 0.12;
+      let p = 0, v = 0, landed = false, launched = false, prevY = st.y;
+      const K = 128, C = 14;                       // spring stiffness / damping (≈ one 9% overshoot, settles ~0.65s)
+      if (!reduced && up && to > 0) setTimeout(() => !destroyed && leaves(), SQ * 1000);
+      return run((t, dt) => {
+        if (t < SQ) {                              // anticipation: crouch & squash
+          const e = ease(t / SQ);
+          st.pose = blendPose(startPose, POSES.crouch, e);
+          st.sy = 1 - 0.1 * e; st.sx = 1 + 0.07 * e;
+          return false;
+        }
+        if (!launched) { launched = true; CH.sound && CH.sound.play && CH.sound.play('climb'); }
+        for (let h = dt / 6, i = 0; i < 6; i++) { v += (-(p - 1) * K - v * C) * h; p += v * h; }
+        const q = clamp(p, 0, 1);
+        st.x = lerp(from.x, dst.x, p) + Math.sin(q * Math.PI) * (up ? 16 : 6);
+        st.y = lerp(from.y, dst.y, p);
+        // stretch while flying, squash on the overshoot
+        const s = clamp(v * 0.035, -0.08, 0.12) - clamp((p - 1) * 0.9, -0.06, 0.06);
+        st.sy = 1 + s; st.sx = 1 - s * 0.55;
+        // pose: crouch → reach (take-off) → rest (landing), pose switch mid-air
+        st.pose = q < 0.45 ? blendPose(POSES.crouch, POSES.reach, ease(q / 0.4)) : blendPose(POSES.reach, endPose, ease((q - 0.45) / 0.45));
+        beardStep((st.y - prevY) / Math.max(dt, 1e-3), dt); prevY = st.y;
+        if (!landed && p > 0.92) {
+          landed = true; level = to; markRungs(to);
+          sage.classList.toggle('on-ground', to <= 0);
+          sparkleAt(to);
+        }
+        const settled = t > SQ + 0.3 && Math.abs(p - 1) < 0.003 && Math.abs(v) < 0.05 && Math.abs(st.beard) < 0.4;
+        if (settled || t > SQ + 1.2) { st.x = dst.x; st.y = dst.y; st.sx = st.sy = 1; st.pose = { ...endPose }; st.beard = 0; return true; }
+        return false;
+      });
+    }
+
+    function sparkleAt(k) {
+      if (k <= 0 || !CH.fx || !CH.fx.burst || !CH.stage || !rungEls[k - 1]) return;
+      try {
+        const r = CH.stage.rectOf(rungEls[k - 1].badge);
+        if (r.w > 0) CH.fx.burst(r.cx, r.cy, { kind: 'sparkle', count: 16, color: '#ffd56a' });
+      } catch (e) { /* ignore */ }
+    }
+    // a few leaves flick off the tree as he jumps
+    const LEAF = '<svg viewBox="-1 -4 15 8" width="15" height="8"><path d="M0 0C3.2-2.7 8.4-3 13 0C8.4 3 3.2 2.7 0 0Z" fill="#7cc04f" stroke="#2b6d36" stroke-width=".8"/></svg>';
+    function leaves() {
+      for (let i = 0; i < 3; i++) {
+        const lf = el('i', 'leaf', LEAF);
+        const x0 = st.x - 22 + Math.random() * 18, y0 = st.y - 150 + Math.random() * 40;
+        fx.append(lf);
+        const dx = (Math.random() - 0.35) * 70, dy = 90 + Math.random() * 90, r0 = Math.random() * 360, r1 = r0 + (Math.random() > 0.5 ? 1 : -1) * (260 + Math.random() * 300);
+        const a = lf.animate([
+          { transform: `translate(${f1(x0)}px, ${f1(y0)}px) rotate(${f1(r0)}deg) scale(.4)`, opacity: 0 },
+          { transform: `translate(${f1(x0 + dx * 0.25)}px, ${f1(y0 - 14)}px) rotate(${f1(r0 + 60)}deg) scale(1)`, opacity: 1, offset: 0.15 },
+          { transform: `translate(${f1(x0 + dx)}px, ${f1(y0 + dy)}px) rotate(${f1(r1)}deg) scale(.9)`, opacity: 0 },
+        ], { duration: 1400 + Math.random() * 500, delay: i * 70, easing: 'cubic-bezier(.3,.1,.5,1)', fill: 'both' });
+        a.finished.catch(() => {}).then(() => lf.remove());
+      }
+    }
+
+    function flareStar() {
+      star.classList.add('is-lit');
+      const opts = { duration: 1300, easing: 'cubic-bezier(.16,1,.3,1)' };
+      const g = star.querySelector('.glow'), rays = star.querySelector('.rays');
+      g.animate && g.animate([{ transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }, { transform: 'translate(-50%,-50%) scale(2.1)', opacity: 1, offset: 0.25 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }], opts);
+      rays.animate && rays.animate([{ opacity: 0.7, scale: '1' }, { opacity: 1, scale: '1.7', offset: 0.25 }, { opacity: 0.7, scale: '1' }], opts);
+      disc.animate && disc.animate([{ transform: 'translate(-50%,-50%) scale(1) rotate(0deg)' }, { transform: 'translate(-50%,-50%) scale(1.3) rotate(30deg)', offset: 0.3 }, { transform: 'translate(-50%,-50%) scale(1) rotate(60deg)' }], { duration: 1100, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+      if (CH.fx && CH.fx.burst && CH.stage) {
+        try { const r = CH.stage.rectOf(disc); if (r.w > 0) CH.fx.burst(r.cx, r.cy, { kind: 'sparkle', count: 40, color: '#ffe49a' }); } catch (e) { /* ignore */ }
+      }
+    }
+
+    function cheerAnim() {
+      clearTimeout(cheerTimer);
+      const startPose = { ...st.pose }, cp = level > 0 ? POSES.cheerR : POSES.cheer, base = feetAt(level, N);
+      svg.classList.add('is-cheer');
+      if (level >= N) flareStar();
+      const hop = reduced ? 0 : 1;
+      return run((t, dt) => {
+        st.pose = blendPose(startPose, cp, ease(t / 0.22));
+        // two happy hops with a damped bounce
+        const ph = t / 0.36, y = hop * (t < 0.72 ? -Math.abs(Math.sin(ph * Math.PI)) * (t < 0.36 ? 20 : 11) : 0);
+        const prev = st.y; st.y = base.y + y; st.x = base.x;
+        const land = t < 0.72 ? Math.max(0, 1 - Math.abs(Math.sin(ph * Math.PI)) * 6) : 0;
+        st.sy = 1 - 0.07 * land * hop; st.sx = 1 + 0.05 * land * hop;
+        beardStep((st.y - prev) / Math.max(dt, 1e-3), dt);
+        if (t > 1.0) { st.y = base.y; st.sx = st.sy = 1; return true; }
+        return false;
+      }).then(() => {
+        cheerTimer = setTimeout(() => {           // relax back into the resting pose
+          if (destroyed || raf) return;
+          const from = { ...st.pose }, to = restPose(level);
+          run((t) => { st.pose = blendPose(from, to, ease(t / 0.4)); if (t > 0.4) { svg.classList.remove('is-cheer'); return true; } return false; });
+        }, 1800);
+      });
+    }
+
+    const enqueue = (fn) => (queue = queue.then(() => (destroyed ? undefined : fn())).catch((e) => console.error(e)));
+
+    const api = {
+      el: root,
+      get level() { return level; },
+      get steps() { return N; },
+      setLevel(k, o = {}) {
+        k = clamp(Math.round(k), 0, N);
+        if (!o.animate) {
+          clearTimeout(cheerTimer); stop();
+          level = k; place(k); markRungs();
+          return Promise.resolve();
+        }
+        return enqueue(() => (k === level ? Promise.resolve() : jump(k)));
+      },
+      climb() {
+        return enqueue(() => (level >= N ? Promise.resolve() : (clearTimeout(cheerTimer), svg.classList.remove('is-cheer'), jump(level + 1))));
+      },
+      cheer() { return enqueue(() => cheerAnim()); },
+      setSteps(n) {
+        N = clamp(Math.round(n) || 1, 1, 15);
+        level = clamp(level, 0, N);
+        clearTimeout(cheerTimer); stop();
+        buildRungs(); place(level);
+      },
+      destroy() {
+        destroyed = true; clearTimeout(cheerTimer); stop();
+        cubeAnims.forEach((a) => a.cancel());
+        if (ro) ro.disconnect();
+        root.remove();
+      },
+    };
+    buildRungs();
+    place(level);
+    return api;
+  }
+
+  // ================================================================ victory wreath
+  const SPRING = (() => {                          // linear() easing sampled from a damped spring (fallback: back-out)
+    try {
+      if (!CSS.supports('animation-timing-function', 'linear(0, 1)')) throw 0;
+      const pts = [];
+      for (let i = 0; i <= 40; i++) { const t = i / 40, x = 1 - Math.exp(-6.2 * t) * Math.cos(11 * t); pts.push(x.toFixed(4)); }
+      pts[40] = '1';
+      return `linear(${pts.join(',')})`;
+    } catch (e) { return 'cubic-bezier(.34,1.56,.64,1)'; }
+  })();
+
+  function wreathCreate(container) {
+    const id = 'wr' + (++seq) + '_';
+    const C = 280, R = 222, V = 560;
+    const gold = (n, x1, y1, x2, y2, stops) => `<linearGradient id="${id}${n}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}">${stops.map(([o, c]) => `<stop offset="${o}" stop-color="${c}"/>`).join('')}</linearGradient>`;
+    let defs =
+      gold('la', 0, 0, 0, 1, [[0, '#fff6cf'], [0.4, '#ffd979'], [1, '#e2a032']]) +       // leaf lit half
+      gold('lb', 0, 0, 0, 1, [[0, '#e9ac3e'], [0.6, '#b8761c'], [1, '#7c4a0c']]) +       // leaf shade half
+      gold('st', 0, 0, 1, 1, [[0, '#fff1bf'], [0.45, '#e7b448'], [1, '#8f5c12']]) +      // stem
+      gold('rb', 0, 0, 0, 1, [[0, '#ff6b6b'], [0.45, '#d42a36'], [1, '#7e1220']]) +      // ribbon
+      gold('rd', 0, 0, 0, 1, [[0, '#b81f2c'], [1, '#5e0c16']]) +
+      `<radialGradient id="${id}ol" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#fff8dc"/><stop offset=".35" stop-color="#ffd56a"/><stop offset="1" stop-color="#9a6212"/></radialGradient>` +
+      `<linearGradient id="${id}sh" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".9"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+      `<radialGradient id="${id}gl" cx=".5" cy=".5" r=".5"><stop offset=".62" stop-color="#ffd56a" stop-opacity="0"/><stop offset=".8" stop-color="#ffd56a" stop-opacity=".22"/><stop offset="1" stop-color="#ffd56a" stop-opacity="0"/></radialGradient>`;
+
+    // stems: from the bottom crossing, up each side, open gap at the top
+    const P = (aDeg, r) => [C + Math.cos(aDeg * D2R) * r, C + Math.sin(aDeg * D2R) * r];
+    const side = (s) => {                          // s = -1 left, +1 right
+      const a0 = 90 - s * 16, a1 = 90 - s * 154, n = 40, pts = [];
+      for (let i = 0; i <= n; i++) {
+        const t = i / n, a = lerp(a0, a1, t), r = R + 5 * Math.sin(t * Math.PI) - 16 * Math.pow(1 - t, 3);
+        pts.push(P(a, r).concat(a));
+      }
+      return pts;
+    };
+    const leafD = (L, w) => `M0 0C${f1(L * 0.22)} ${f1(-w * 0.62)} ${f1(L * 0.62)} ${f1(-w * 0.62)} ${L} 0Z`;
+    const leafE = (L, w) => `M0 0C${f1(L * 0.22)} ${f1(w * 0.58)} ${f1(L * 0.62)} ${f1(w * 0.58)} ${L} 0Z`;
+    const parts = { stems: [], leaves: [], olives: [] };
+    let stemsSvg = '', leavesSvg = '', olivesSvg = '', maskSvg = '';
+    [-1, 1].forEach((s) => {
+      const pts = side(s);
+      const d = smooth(pts.map((p) => [p[0], p[1]]));
+      stemsSvg += `<path class="wr-stem" d="${d}" pathLength="1" fill="none" stroke="url(#${id}st)" stroke-width="6" stroke-linecap="round"/>` +
+        `<path class="wr-stem hi" d="${d}" pathLength="1" fill="none" stroke="#fff3c4" stroke-opacity=".7" stroke-width="1.6" stroke-linecap="round" transform="translate(${-s * 0.8} -1)"/>`;
+      maskSvg += `<path d="${d}" fill="none" stroke="#fff" stroke-width="6"/>`;
+      const n = 13;
+      for (let i = 0; i < n; i++) {
+        const t = 0.07 + (i / (n - 1)) * 0.86, k = Math.round(t * (pts.length - 1));
+        const [x, y, a] = pts[k];
+        const tan = a - s * 90;                    // direction of growth (toward the top)
+        const L = lerp(54, 32, t), w = L * 0.38;
+        [1, -1].forEach((side2, j) => {
+          if (i === n - 1 && j) return;
+          const ang = tan + side2 * s * (i === n - 1 ? 8 : 38 + (j ? 6 : 0));
+          const ox = x + Math.cos((tan + side2 * 90 * s) * D2R) * 2, oy = y + Math.sin((tan + side2 * 90 * s) * D2R) * 2;
+          const lit = side2 * s < 0;              // outer leaves catch the light
+          const body = `<path d="${leafD(L, w)}" fill="url(#${id}${lit ? 'la' : 'lb'})"/><path d="${leafE(L, w)}" fill="url(#${id}${lit ? 'lb' : 'la'})" fill-opacity=".92"/>` +
+            `<path d="M2 0L${f1(L * 0.9)} 0" stroke="#7c4a0c" stroke-opacity=".55" stroke-width="1.1" stroke-linecap="round"/>` +
+            `<path d="${leafD(L, w)}" fill="none" stroke="#fff3c4" stroke-opacity=".45" stroke-width=".8"/>`;
+          const tr = `translate(${f1(ox)} ${f1(oy)}) rotate(${f1(ang)})`;
+          leavesSvg += `<g transform="${tr}"><g class="wr-leaf" data-t="${t.toFixed(3)}">${body}</g></g>`;
+          maskSvg += `<path transform="${tr}" d="${leafD(L, w)}${leafE(L, w)}" fill="#fff"/>`;
+        });
+        if (i % 3 === 1 && i < n - 2) {            // olives in pairs on short stalks
+          const oa = tan - s * 90 * 0.9, ox = x + Math.cos(oa * D2R) * 15, oy = y + Math.sin(oa * D2R) * 15;
+          olivesSvg += `<g class="wr-olive" data-t="${t.toFixed(3)}" style="transform-origin:${f1(x)}px ${f1(y)}px">` +
+            `<path d="M${f1(x)} ${f1(y)}L${f1(ox)} ${f1(oy)}" stroke="url(#${id}st)" stroke-width="2"/>` +
+            `<ellipse cx="${f1(ox)}" cy="${f1(oy)}" rx="7" ry="9.5" transform="rotate(${f1(oa - 90)} ${f1(ox)} ${f1(oy)})" fill="url(#${id}ol)" stroke="#7c4a0c" stroke-opacity=".6" stroke-width="1"/>` +
+            `<circle cx="${f1(ox - 2.2)}" cy="${f1(oy - 3)}" r="2" fill="#fff" fill-opacity=".85"/></g>`;
+          maskSvg += `<ellipse cx="${f1(ox)}" cy="${f1(oy)}" rx="7" ry="9.5" fill="#fff"/>`;
+        }
+      }
+    });
+
+    // ribbon bow at the bottom
+    const by = C + R + 2;
+    const ribbon = `<g class="wr-ribbon" style="transform-origin:${C}px ${by}px">` +
+      `<path d="M${C - 8} ${by + 6}C${C - 22} ${by + 34} ${C - 40} ${by + 58} ${C - 56} ${by + 78}L${C - 40} ${by + 74}L${C - 34} ${by + 92}C${C - 20} ${by + 66} ${C - 6} ${by + 40} ${C + 2} ${by + 10}Z" fill="url(#${id}rd)"/>` +
+      `<path d="M${C + 8} ${by + 6}C${C + 22} ${by + 34} ${C + 40} ${by + 58} ${C + 56} ${by + 78}L${C + 40} ${by + 74}L${C + 34} ${by + 92}C${C + 20} ${by + 66} ${C + 6} ${by + 40} ${C - 2} ${by + 10}Z" fill="url(#${id}rb)"/>` +
+      `<path d="M${C - 4} ${by}C${C - 26} ${by - 26} ${C - 62} ${by - 26} ${C - 60} ${by - 4}C${C - 58} ${by + 16} ${C - 26} ${by + 14} ${C - 4} ${by + 4}Z" fill="url(#${id}rb)" stroke="#5e0c16" stroke-opacity=".5" stroke-width="1.2"/>` +
+      `<path d="M${C + 4} ${by}C${C + 26} ${by - 26} ${C + 62} ${by - 26} ${C + 60} ${by - 4}C${C + 58} ${by + 16} ${C + 26} ${by + 14} ${C + 4} ${by + 4}Z" fill="url(#${id}rb)" stroke="#5e0c16" stroke-opacity=".5" stroke-width="1.2"/>` +
+      `<path d="M${C - 10} ${by - 2}C${C - 26} ${by - 14} ${C - 46} ${by - 16} ${C - 52} ${by - 6}" fill="none" stroke="#ffb0a8" stroke-opacity=".7" stroke-width="2" stroke-linecap="round"/>` +
+      `<path d="M${C + 10} ${by - 2}C${C + 26} ${by - 14} ${C + 46} ${by - 16} ${C + 52} ${by - 6}" fill="none" stroke="#ffb0a8" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>` +
+      `<path d="M${C - 60} ${by - 4}C${C - 58} ${by + 16} ${C - 26} ${by + 14} ${C - 4} ${by + 4}M${C + 60} ${by - 4}C${C + 58} ${by + 16} ${C + 26} ${by + 14} ${C + 4} ${by + 4}" fill="none" stroke="#ffd56a" stroke-opacity=".8" stroke-width="1.6"/>` +
+      `<rect x="${C - 11}" y="${by - 11}" width="22" height="22" rx="7" fill="url(#${id}rb)" stroke="#5e0c16" stroke-opacity=".6" stroke-width="1.2"/>` +
+      `<rect x="${C - 11}" y="${by - 11}" width="22" height="22" rx="7" fill="none" stroke="#ffd56a" stroke-opacity=".85" stroke-width="1.4"/>` +
+      `<path d="M${C - 6} ${by - 6}Q${C} ${by - 9} ${C + 6} ${by - 6}" stroke="#fff" stroke-opacity=".6" stroke-width="2" fill="none" stroke-linecap="round"/></g>`;
+
+    // twinkles
+    const tw = [[-122, -168, 1], [178, -96, 0.8], [-206, 64, 0.7], [150, 168, 0.9], [36, -222, 0.75]].map(([dx, dy, s]) =>
+      `<g transform="translate(${C + dx} ${C + dy}) scale(${s})"><path class="wr-tw" d="M0-14C1.4-3 3-1.4 14 0C3 1.4 1.4 3 0 14C-1.4 3-3 1.4-14 0C-3-1.4-1.4-3 0-14Z" fill="#fff8dc"/></g>`).join('');
+
+    defs += `<mask id="${id}m" maskUnits="userSpaceOnUse" x="0" y="0" width="${V}" height="${V}">${maskSvg}</mask>`;
+    const html = `<svg viewBox="0 0 ${V} ${V}" overflow="visible" aria-hidden="true"><defs>${defs}</defs>` +
+      `<circle class="wr-glow" cx="${C}" cy="${C}" r="${R + 60}" fill="url(#${id}gl)"/>` +
+      `<g class="wr-body">${stemsSvg}${olivesSvg}${leavesSvg}${ribbon}</g>` +
+      `<g mask="url(#${id}m)"><g transform="rotate(24 ${C} ${C})"><rect class="wr-shine" x="-260" y="-80" width="190" height="${V + 160}" fill="url(#${id}sh)"/></g></g>` +
+      `<g class="wr-tws">${tw}</g></svg>`;
+
+    const root = el('div', 'wreath', html);
+    container.append(root);
+    const q = (s) => Array.from(root.querySelectorAll(s));
+    const stems = q('.wr-stem'), leafEls = q('.wr-leaf'), oliveEls = q('.wr-olive');
+    const ribbonEl = root.querySelector('.wr-ribbon'), shine = root.querySelector('.wr-shine'), glowEl = root.querySelector('.wr-glow'), tws = q('.wr-tw');
+    let anims = [];
+
+    function reset() {
+      anims.forEach((a) => a.cancel()); anims = [];
+      root.classList.remove('is-played');
+    }
+    function play() {
+      reset();
+      root.classList.add('is-played');
+      const k = reduced ? 0.25 : 1;
+      const A = (elx, kf, o) => { if (!elx.animate) return null; const a = elx.animate(kf, { fill: 'both', ...o, duration: o.duration * k, delay: (o.delay || 0) * k }); anims.push(a); return a; };
+      A(ribbonEl, [{ transform: 'scale(.2) rotate(-25deg)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 700, easing: SPRING });
+      const DRAW0 = 120, DRAW = 900;
+      stems.forEach((s) => A(s, [{ strokeDashoffset: 1, strokeDasharray: '1 1' }, { strokeDashoffset: 0, strokeDasharray: '1 1' }], { duration: DRAW, delay: DRAW0, easing: 'cubic-bezier(.45,.05,.3,1)' }));
+      // leaf i appears when the stem has grown past it
+      const at = (t) => DRAW0 + DRAW * (1 - Math.pow(1 - t, 1.6)) * 0.94;
+      leafEls.forEach((lf, i) => {
+        const t = +lf.dataset.t;
+        A(lf, [{ transform: 'scale(0) rotate(-30deg)', opacity: 0 }, { opacity: 1, offset: 0.25 }, { transform: 'none', opacity: 1 }], { duration: 640, delay: at(t) + (i % 2) * 40, easing: SPRING });
+      });
+      oliveEls.forEach((o) => A(o, [{ transform: 'scale(0)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 560, delay: at(+o.dataset.t) + 260, easing: SPRING }));
+      A(glowEl, [{ opacity: 0 }, { opacity: 1 }], { duration: 900, delay: 900, easing: 'ease-out' });
+      const sh = A(shine, [{ transform: 'translateX(0px)' }, { transform: `translateX(${V + 440}px)` }], { duration: 760, delay: 1080, easing: 'cubic-bezier(.45,0,.25,1)' });
+      tws.forEach((t, i) => A(t, [{ transform: 'scale(0) rotate(0deg)', opacity: 0 }, { transform: 'scale(1) rotate(45deg)', opacity: 1, offset: 0.4 }, { transform: 'scale(0) rotate(90deg)', opacity: 0 }], { duration: 900, delay: 1150 + i * 140, easing: 'ease-out' }));
+      return (sh ? sh.finished.catch(() => {}) : Promise.resolve()).then(() => undefined);
+    }
+    return { el: root, play, reset };
+  }
+
+  CH.ladder = { create };
+  CH.wreath = { create: wreathCreate };
+})(window.CH = window.CH || {});

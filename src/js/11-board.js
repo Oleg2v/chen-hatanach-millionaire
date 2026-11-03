@@ -85,8 +85,9 @@
     const ol = h('ol');
     rows.slice(0, MAX).forEach((r, i) => {
       const rank = i === 0 || r.score !== rows[i - 1].score ? i + 1 : null;
-      const li = h('li.lb-row' + (i === 0 ? '.first' : ''), { style: { '--c': colorOf(r.n) }, 'data-n': r.n },
-        i === 0 ? h('span.crown', { html: CH.ui.icons.crown }) : null,
+      const lead = i === 0 && r.score > 0;
+      const li = h('li.lb-row' + (lead ? '.first' : ''), { style: { '--c': colorOf(r.n) }, 'data-n': r.n },
+        lead ? h('span.crown', { html: CH.ui.icons.crown }) : null,
         h('span.rk', String(rank || '·')),
         h('span.nm', h('bdi', `כוורת ${r.n}`), h('small', { html: `<bdi>${r.correct}/${r.total}</bdi>` + CH.ui.icons.check })),
         h('span.pt', fmtScore(r.score)));

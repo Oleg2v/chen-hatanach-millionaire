@@ -1,0 +1,158 @@
+/* ==========================================================================
+   Ladder (olive tree + climbing sage + star) and victory wreath — scoped to .ladder / .wreath
+   ========================================================================== */
+.ladder { position: absolute; inset: 0; pointer-events: none; isolation: isolate; }
+.ladder .lad-scene {
+  position: absolute; left: 50%; bottom: 0; width: 360px; height: 880px;
+  transform-origin: 50% 100%; transform: translateX(-50%) scale(var(--lad-k, 1));
+}
+.ladder .lad-scene > * { position: absolute; left: 0; top: 0; }
+.ladder svg { overflow: visible; }
+
+/* soft light behind the crown so the tree separates from the sky */
+.ladder .lad-aura {
+  left: -60px; top: -70px; width: 480px; height: 480px; border-radius: 50%; z-index: 0;
+  background: radial-gradient(circle at 50% 50%, rgba(255, 226, 150, 0.22) 0%, rgba(160, 220, 255, 0.12) 38%, rgba(160, 220, 255, 0) 68%);
+}
+.ladder .lad-crown { width: 360px; height: 360px; transform-origin: 180px 330px; will-change: transform;
+  animation: lad-sway 9s ease-in-out infinite; }
+.ladder .lad-crown-b { z-index: 2; filter: drop-shadow(0 10px 18px rgba(2, 12, 40, 0.35)); }
+.ladder .lad-trunk { z-index: 3; width: 360px; height: 960px; }
+.ladder .lad-crown-f { z-index: 4; }
+@keyframes lad-sway { 0%, 100% { transform: rotate(-0.6deg); } 50% { transform: rotate(0.6deg); } }
+
+/* ---- star of the Tanakh ---- */
+.ladder .lad-star { z-index: 5; left: 180px; top: 52px; width: 0; height: 0; }
+.ladder .lad-star > * { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); border-radius: 50%; }
+.ladder .lad-star .glow {
+  width: 230px; height: 230px;
+  background: radial-gradient(circle, rgba(255, 240, 190, 0.95) 0%, rgba(255, 214, 110, 0.55) 22%, rgba(255, 190, 70, 0.18) 46%, rgba(255, 190, 70, 0) 70%);
+  animation: lad-glow 3.8s ease-in-out infinite; will-change: transform, opacity;
+}
+.ladder .lad-star .rays {
+  width: 300px; height: 300px; opacity: 0.7;
+  background: repeating-conic-gradient(from 0deg, rgba(255, 230, 160, 0) 0deg, rgba(255, 230, 160, 0.55) 3deg, rgba(255, 230, 160, 0) 7deg, rgba(255, 230, 160, 0) 20deg);
+  -webkit-mask-image: radial-gradient(circle, #000 12%, rgba(0, 0, 0, 0.5) 30%, transparent 62%);
+          mask-image: radial-gradient(circle, #000 12%, rgba(0, 0, 0, 0.5) 30%, transparent 62%);
+  animation: lad-spin 46s linear infinite; will-change: transform;
+}
+.ladder .lad-star .disc {
+  width: 86px; height: 86px; padding: 5px;
+  background: conic-gradient(from 210deg, #fff3c4, #e7b448, #8f5c12, #f5d27a, #b27a1f, #fff3c4);
+  box-shadow: 0 0 0 1.5px rgba(255, 246, 214, 0.9) inset, 0 0 26px rgba(255, 210, 100, 0.85), 0 8px 18px rgba(2, 10, 40, 0.45);
+}
+.ladder .lad-star .disc > svg, .ladder .lad-star .disc > img { width: 100%; height: 100%; border-radius: 50%; display: block; }
+.ladder .lad-star .sp {
+  width: 16px; height: 16px; border-radius: 0;
+  background: radial-gradient(circle, #fff 0 18%, rgba(255, 240, 190, 0) 20%),
+              conic-gradient(from 45deg, transparent 0 40deg, rgba(255, 246, 214, 0.95) 45deg, transparent 50deg 130deg, rgba(255, 246, 214, 0.95) 135deg, transparent 140deg 220deg, rgba(255, 246, 214, 0.95) 225deg, transparent 230deg 310deg, rgba(255, 246, 214, 0.95) 315deg, transparent 320deg);
+  animation: lad-twinkle 3.2s ease-in-out infinite; opacity: 0;
+}
+.ladder .lad-star .s1 { left: -58px; top: -26px; }
+.ladder .lad-star .s2 { left: 60px; top: -40px; animation-delay: 1.1s; }
+.ladder .lad-star .s3 { left: 46px; top: 44px; animation-delay: 2.2s; width: 12px; height: 12px; }
+.ladder .lad-star.is-lit .glow { animation-duration: 2.4s; }
+.ladder .lad-star.is-lit .disc { box-shadow: 0 0 0 1.5px rgba(255, 246, 214, 0.9) inset, 0 0 40px rgba(255, 220, 120, 1), 0 0 90px rgba(255, 200, 90, 0.6), 0 8px 18px rgba(2, 10, 40, 0.45); }
+@keyframes lad-glow { 0%, 100% { transform: translate(-50%, -50%) scale(0.92); opacity: 0.85; } 50% { transform: translate(-50%, -50%) scale(1.06); opacity: 1; } }
+@keyframes lad-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+@keyframes lad-twinkle { 0%, 70%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(0.3) rotate(0deg); } 82% { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(45deg); } }
+
+/* ---- book-cubes orbiting the crown ---- */
+.ladder .lad-orbit { inset: 0; position: absolute; z-index: auto; }
+.ladder .lad-cube { position: absolute; left: 0; top: 0; width: 52px; height: 52px; will-change: transform, opacity; }
+.ladder .lad-cube .bob { width: 100%; height: 100%; animation: lad-bob 5.6s ease-in-out infinite; filter: drop-shadow(0 6px 8px rgba(2, 10, 40, 0.35)); }
+.ladder .lad-cube svg { width: 100%; height: 100%; }
+@keyframes lad-bob { 0%, 100% { transform: translateY(-5px) rotate(-7deg); } 50% { transform: translateY(5px) rotate(6deg); } }
+
+/* ---- rungs: wooden pegs through the trunk + number badges ---- */
+.ladder .lad-rungs { z-index: 5; inset: 0; position: absolute; }
+.ladder .lad-rung > * { position: absolute; }
+.ladder .peg {
+  height: 11px; border-radius: 6px; transform-origin: 0 50%;
+  background: linear-gradient(180deg, #e9bf84 0%, #c08a50 32%, #8a5a30 70%, #5a3518 100%);
+  box-shadow: 0 4px 5px rgba(20, 8, 0, 0.45), inset 0 1px 0 rgba(255, 240, 210, 0.55);
+}
+.ladder .peg.r { transform-origin: 0 50%; }
+.ladder .peg.l { transform-origin: 100% 50%; }
+.ladder .peg::before {                   /* end grain */
+  content: ''; position: absolute; top: 0; width: 8px; height: 11px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%, #f6dcae 0 25%, #c99a62 30% 45%, #efcf98 50% 70%, #a87443 100%);
+  box-shadow: 0 0 0 1px rgba(60, 30, 10, 0.55);
+}
+.ladder .peg.r::before { right: -2px; }
+.ladder .peg.l::before { left: -2px; }
+.ladder .peg::after {                    /* gold-lacquered state */
+  content: ''; position: absolute; inset: 0; border-radius: inherit; opacity: 0; transition: opacity 600ms var(--ease-out, ease-out);
+  background: linear-gradient(180deg, #fff6d6 0%, #ffd56a 35%, #e19a2a 70%, #9a6212 100%);
+  box-shadow: 0 0 10px rgba(255, 210, 100, 0.9);
+}
+.ladder .lad-rung.is-done .peg::after { opacity: 1; }
+.ladder .lad-rung .glow {
+  height: 54px; transform: translate(-50%, -50%); border-radius: 50%; opacity: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(255, 214, 110, 0.55) 0%, rgba(255, 190, 70, 0.18) 45%, rgba(255, 190, 70, 0) 70%);
+  transition: opacity 700ms var(--ease-out, ease-out);
+}
+.ladder .lad-rung.is-done .glow { opacity: 1; }
+.ladder .lad-rung.is-next .glow { opacity: 1; animation: lad-pulse-o 1.8s ease-in-out infinite; }
+
+.ladder .badge {
+  --r: 18px;
+  width: calc(var(--r) * 2); height: calc(var(--r) * 2); margin: 0; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  display: grid; place-items: center;
+  font: 800 calc(var(--r) * 1.04) / 1 var(--f-ui, 'Rubik', sans-serif); letter-spacing: -0.02em; direction: ltr;
+  color: #ffe49a;
+  background: radial-gradient(circle at 38% 30%, #2f66c4 0%, #13377e 60%, #0b2459 100%);
+  box-shadow: 0 0 0 2px rgba(255, 214, 120, 0.8), 0 4px 10px rgba(2, 10, 40, 0.5), inset 0 2px 3px rgba(160, 210, 255, 0.35);
+  transition: color 400ms, background 400ms, box-shadow 500ms;
+}
+.ladder .lad-rung.is-done .badge {
+  color: #4a2c05;
+  background: radial-gradient(circle at 38% 28%, #fff8dc 0%, #ffd979 35%, #e9a42c 72%, #b9771a 100%);
+  box-shadow: 0 0 0 2px #fff3c4, 0 0 16px rgba(255, 205, 90, 0.9), 0 0 34px rgba(255, 180, 60, 0.45), 0 4px 10px rgba(2, 10, 40, 0.45);
+  text-shadow: 0 1px 0 rgba(255, 246, 214, 0.8);
+}
+.ladder .lad-rung.is-next .badge {
+  color: #fff3c4;
+  box-shadow: 0 0 0 2.5px #ffd56a, 0 0 18px rgba(255, 210, 100, 0.7), 0 4px 10px rgba(2, 10, 40, 0.5), inset 0 2px 3px rgba(160, 210, 255, 0.35);
+}
+.ladder .lad-rung.is-next .badge::after {
+  content: ''; position: absolute; inset: -3px; border-radius: 50%;
+  border: 2.5px solid rgba(255, 220, 130, 0.95);
+  animation: lad-pulse 1.8s var(--ease-out, ease-out) infinite;
+}
+@keyframes lad-pulse { 0% { transform: scale(1); opacity: 0.95; } 100% { transform: scale(1.75); opacity: 0; } }
+@keyframes lad-pulse-o { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+/* ---- the sage ---- */
+.ladder .lad-climber { z-index: 8; width: 180px; height: 210px; transform-origin: 90px 190px; will-change: transform; }
+.ladder .lad-climber svg { width: 180px; height: 210px; filter: drop-shadow(0 6px 8px rgba(2, 10, 40, 0.35)); }
+.ladder .lad-sage .ol { stroke: #1b1238; stroke-width: 2; stroke-linejoin: round; }
+.ladder .lad-sage .cl-ground { opacity: 0; transition: opacity 300ms; }
+.ladder .lad-climber.on-ground .cl-ground { opacity: 1; }
+.ladder .lad-sage .cl-eye { transform-box: fill-box; transform-origin: 50% 50%; animation: lad-blink 4.6s infinite; }
+.ladder .lad-sage .cl-happy, .ladder .lad-sage .cl-open { display: none; }
+.ladder .lad-sage.is-cheer .cl-happy, .ladder .lad-sage.is-cheer .cl-open { display: inline; }
+.ladder .lad-sage.is-cheer .cl-eye, .ladder .lad-sage.is-cheer .cl-smile { display: none; }
+.ladder .lad-sage .cl-breath { transform-box: fill-box; transform-origin: 50% 100%; animation: lad-breathe 3.6s ease-in-out infinite; }
+@keyframes lad-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes lad-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.012, 1.022); } }
+
+.ladder .lad-fx { z-index: 9; inset: 0; position: absolute; }
+.ladder .lad-fx .leaf { position: absolute; left: 0; top: 0; width: 15px; height: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ladder .lad-crown, .ladder .lad-star .rays, .ladder .lad-cube .bob { animation: none; }
+}
+
+/* ==========================================================================
+   Victory wreath (result screen)
+   ========================================================================== */
+.wreath { position: absolute; inset: 0; pointer-events: none; }
+.wreath > svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 10px 22px rgba(2, 10, 40, 0.5)); }
+.wreath .wr-stem { stroke-dasharray: 1 1; stroke-dashoffset: 1; }
+.wreath .wr-leaf { transform-box: fill-box; transform-origin: 0% 50%; transform: scale(0); opacity: 0; }
+.wreath .wr-olive { transform: scale(0); opacity: 0; }
+.wreath .wr-ribbon { transform: scale(0.2); opacity: 0; }
+.wreath .wr-glow { opacity: 0; }
+.wreath .wr-tw { transform-box: fill-box; transform-origin: 50% 50%; transform: scale(0); opacity: 0; }

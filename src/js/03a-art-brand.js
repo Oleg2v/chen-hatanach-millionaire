@@ -36,69 +36,81 @@
   // ======================================================================
   // Emblem — hexagram tiled by six 60° rhombi in a white disc
   // ======================================================================
+  /** Six 60° rhombi tiling a hexagram (acute corners meet at the centre), clockwise from the top.
+   *  Each is shrunk about its own centre so neighbours keep a uniform gap. → [[x, y] ×4] ×6 */
+  function hexRhombi(cx, cy, R, gap) {
+    const s = R / Math.sqrt(3), k = 1 - gap / (s * Math.sin(Math.PI / 3));
+    const P = (a, r) => [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+    return Array.from({ length: 6 }, (_, i) => {
+      const th = ((-90 + 60 * i) * Math.PI) / 180, d30 = Math.PI / 6, mc = P(th, R / 2);
+      return [P(th, 0), P(th - d30, s), P(th, R), P(th + d30, s)].map(([x, y]) => [mc[0] + (x - mc[0]) * k, mc[1] + (y - mc[1]) * k]);
+    });
+  }
+  /** Outline of the whole hexagram (12 points). */
+  const hexagram = (cx, cy, R) => Array.from({ length: 12 }, (_, i) => {
+    const a = ((-90 + 30 * i) * Math.PI) / 180, r = i % 2 ? R / Math.sqrt(3) : R;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+  });
+  const pts2 = (pts) => pts.map(([x, y]) => `${N(x)},${N(y)}`).join(' ');
+  const ptsD = (pts) => 'M' + pts.map(([x, y]) => `${N(x)} ${N(y)}`).join('L') + 'z';
+
   function emblem({ shaded = false, ring = true } = {}) {
     const img = brandImg('emblem');
     if (img) return img;
     const id = uid('em'), c = 100;
-    const R = ring ? 79 : 97;                       // star tip radius
-    const s = R / Math.sqrt(3);                     // rhombus side
-    const gap = R * 0.036;                          // white gap between rhombi
-    const k = 1 - (gap / 2) / (s * Math.sin(Math.PI / 3) / 2);   // inset (homothety about rhombus centre)
-    const P = (a, r) => [c + r * Math.cos(a), c + r * Math.sin(a)];
-    const pts2 = (pts) => pts.map(([x, y]) => `${N(x)},${N(y)}`).join(' ');
+    const R = ring ? 80 : 97;                       // star tip radius (disc radius 97)
+    const rh = hexRhombi(c, c, R, R * 0.036);
     let defs = '', body = '';
 
     if (ring) {
       if (shaded) {
-        defs += `<radialGradient id="${id}d" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".72" stop-color="#f7f9fc"/><stop offset="1" stop-color="#e3eaf4"/></radialGradient>`;
+        defs += `<radialGradient id="${id}d" cx="42%" cy="34%" r="70%"><stop offset="0" stop-color="#fff"/><stop offset=".72" stop-color="#f7f9fc"/><stop offset="1" stop-color="#e1e8f3"/></radialGradient>`;
         body += `<circle cx="${c}" cy="${c}" r="97" fill="url(#${id}d)"/><circle cx="${c}" cy="${c}" r="96.4" fill="none" stroke="#0a2a64" stroke-opacity=".1" stroke-width="1.2"/>`;
       } else {
         body += `<circle cx="${c}" cy="${c}" r="97" fill="#fff"/>`;
       }
     }
-
-    const light = (-125 * Math.PI) / 180;           // light from the top-left
-    EMBLEM_COLORS.forEach((col, i) => {
-      const th = ((-90 + 60 * i) * Math.PI) / 180, d30 = Math.PI / 6;
-      const mc = P(th, R / 2);
-      const pts = [P(th, 0), P(th - d30, s), P(th, R), P(th + d30, s)]
-        .map(([x, y]) => [mc[0] + (x - mc[0]) * k, mc[1] + (y - mc[1]) * k]);
-      if (!shaded) { body += `<polygon points="${pts2(pts)}" fill="${col}"/>`; return; }
-
-      // Shaded: soft gradient along the axis + bevelled facets + a fine inner highlight.
-      const g = `${id}g${i}`;
-      defs += `<linearGradient id="${g}" gradientUnits="userSpaceOnUse" x1="${N(pts[0][0])}" y1="${N(pts[0][1])}" x2="${N(pts[2][0])}" y2="${N(pts[2][1])}">` +
-        `<stop offset="0" stop-color="${tint(col, 0.28)}"/><stop offset=".5" stop-color="${col}"/><stop offset="1" stop-color="${shade(col, 0.12)}"/></linearGradient>`;
-      body += `<polygon points="${pts2(pts)}" fill="url(#${g})"/>`;
-      [[pts[0], pts[1], pts[2], th - Math.PI / 2], [pts[0], pts[2], pts[3], th + Math.PI / 2]].forEach(([a, b, t, n]) => {
-        const lam = Math.cos(n - light);
-        body += lam > 0
-          ? `<polygon points="${pts2([a, b, t])}" fill="#fff" fill-opacity="${N(lam * 0.16 * 100) / 100}"/>`
-          : `<polygon points="${pts2([a, b, t])}" fill="#001030" fill-opacity="${N(-lam * 0.14 * 100) / 100}"/>`;
+    if (!shaded) {
+      rh.forEach((pts, i) => { body += `<polygon points="${pts2(pts)}" fill="${EMBLEM_COLORS[i]}"/>`; });
+    } else {
+      // Soft contact shadow under the star, then per rhombus: axial gradient, bevelled facets, fine inner highlight.
+      defs += `<filter id="${id}s" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${ring ? 2.6 : 3.2}"/></filter>`;
+      body += `<polygon points="${pts2(hexagram(c, c + (ring ? 2.6 : 3.4), R * 0.97))}" fill="#0a2a64" fill-opacity="${ring ? 0.2 : 0.32}" filter="url(#${id}s)"/>`;
+      const light = (-125 * Math.PI) / 180;         // light from the top-left
+      rh.forEach((pts, i) => {
+        const col = EMBLEM_COLORS[i], th = ((-90 + 60 * i) * Math.PI) / 180, g = `${id}g${i}`;
+        const mc = [(pts[0][0] + pts[2][0]) / 2, (pts[0][1] + pts[2][1]) / 2];
+        defs += `<linearGradient id="${g}" gradientUnits="userSpaceOnUse" x1="${N(pts[0][0])}" y1="${N(pts[0][1])}" x2="${N(pts[2][0])}" y2="${N(pts[2][1])}">` +
+          `<stop offset="0" stop-color="${tint(col, 0.28)}"/><stop offset=".5" stop-color="${col}"/><stop offset="1" stop-color="${shade(col, 0.12)}"/></linearGradient>`;
+        body += `<polygon points="${pts2(pts)}" fill="url(#${g})"/>`;
+        [[pts[0], pts[1], pts[2], th - Math.PI / 2], [pts[0], pts[2], pts[3], th + Math.PI / 2]].forEach(([a, b, t, n]) => {
+          const lam = Math.cos(n - light);
+          body += lam > 0
+            ? `<polygon points="${pts2([a, b, t])}" fill="#fff" fill-opacity="${N(lam * 0.15 * 100) / 100}"/>`
+            : `<polygon points="${pts2([a, b, t])}" fill="#001030" fill-opacity="${N(-lam * 0.13 * 100) / 100}"/>`;
+        });
+        const hi = pts.map(([x, y]) => [mc[0] + (x - mc[0]) * 0.86, mc[1] + (y - mc[1]) * 0.86]);
+        body += `<polygon points="${pts2(hi)}" fill="none" stroke="#fff" stroke-opacity=".32" stroke-width=".7" stroke-linejoin="round"/>`;
       });
-      const hi = pts.map(([x, y]) => [mc[0] + (x - mc[0]) * 0.86, mc[1] + (y - mc[1]) * 0.86]);
-      body += `<polygon points="${pts2(hi)}" fill="none" stroke="#fff" stroke-opacity=".32" stroke-width=".7" stroke-linejoin="round"/>`;
-    });
-
+    }
     return `<svg class="art-emblem" xmlns="${NS}" viewBox="0 0 200 200" role="img" aria-label="${BRAND_ALT}">` +
       (defs ? `<defs>${defs}</defs>` : '') + body + '</svg>';
   }
 
   // ======================================================================
-  // Wordmark — "חן" over "התנ״ך", Frank Ruhl Libre, white
+  // Wordmark — "חן" over "התנ״ך", Frank Ruhl Libre, white (inline only: it uses the embedded font)
   // ======================================================================
   function wordmark({ color = '#fff' } = {}) {
     const img = brandImg('wordmark');
     if (img) return img;
-    const font = `font-family="FrankRuhl, 'Frank Ruhl Libre', 'NotoSerifHeb', serif"`;
-    // Fine ornamental rule: two hairlines tapering into a small diamond flanked by dots.
-    const rule = `<path d="M18 239.2h63.5l4 .8-4 .8H18zM182 239.2h-63.5l-4 .8 4 .8H182z"/>` +
-      `<path d="M100 232.5l7.5 7.5-7.5 7.5-7.5-7.5z"/><circle cx="88.6" cy="240" r="1.5"/><circle cx="111.4" cy="240" r="1.5"/>`;
-    return `<svg class="art-wordmark" xmlns="${NS}" viewBox="0 0 200 330" role="img" aria-label="${BRAND_ALT}">` +
+    const font = `font-family="FrankRuhl, 'Frank Ruhl Libre', 'NotoSerifHeb', serif" text-anchor="middle" direction="rtl"`;
+    const y = 188;    // ornamental rule: two tapering hairlines and a tiny six-rhombus star (echo of the emblem)
+    const rule = `<path d="M17 ${y}L86 ${y - 0.85}V${y + 0.85}zM183 ${y}L114 ${y - 0.85}V${y + 0.85}z"/>` +
+      `<path d="${hexRhombi(100, y, 9.2, 0.95).map(ptsD).join('')}"/>`;
+    return `<svg class="art-wordmark" xmlns="${NS}" viewBox="0 0 200 272" role="img" aria-label="${BRAND_ALT}">` +
       `<g fill="${color}">` +
-      `<text x="100" y="196" ${font} font-size="214" font-weight="900" text-anchor="middle" direction="rtl">חן</text>` +
-      rule +
-      `<text x="100" y="304" ${font} font-size="76" font-weight="700" letter-spacing="2" text-anchor="middle" direction="rtl">התנ״ך</text>` +
+      `<text x="104.6" y="140" ${font} font-size="214" font-weight="800">חן</text>` + rule +
+      `<text x="102.4" y="249" ${font} font-size="70" font-weight="700" letter-spacing="1.6">התנ״ך</text>` +
       '</g></svg>';
   }
 
@@ -119,7 +131,7 @@
 
   // Path snippets (absolute coordinates)
   const rect = (x, y, w, h) => `M${N(x)} ${N(y)}h${N(w)}v${N(h)}h${N(-w)}z`;
-  const arch = (x, y, w, h) => { const r = w / 2; return `M${N(x)} ${N(y + h)}V${N(y + r)}a${N(r)} ${N(r)} 0 0 1 ${N(w)} 0V${N(y + h)}z`; };
+  const arch = (x, y, w, h) => { const r = N(w / 2), v = N(N(y + h) - N(y + r)); return `M${N(x)} ${N(y + h)}v${-v}a${r} ${r} 0 0 1 ${N(2 * r)} 0v${v}z`; };
   const pointed = (x, y, w, h, k = 0.8) => {
     const R = w * k, rise = Math.sqrt(R * R - (R - w / 2) ** 2);
     return `M${N(x)} ${N(y + h)}V${N(y + rise)}A${N(R)} ${N(R)} 0 0 1 ${N(x + w / 2)} ${N(y)}A${N(R)} ${N(R)} 0 0 1 ${N(x + w)} ${N(y + rise)}V${N(y + h)}z`;
@@ -127,7 +139,7 @@
   const dome = (cx, by, rx, ry) => `M${N(cx - rx)} ${N(by)}A${N(rx)} ${N(ry)} 0 0 1 ${N(cx + rx)} ${N(by)}z`;
   const ell = (cx, cy, rx, ry = rx) => `M${N(cx - rx)} ${N(cy)}a${N(rx)} ${N(ry)} 0 1 0 ${N(2 * rx)} 0a${N(rx)} ${N(ry)} 0 1 0 ${N(-2 * rx)} 0z`;
   const poly = (pts) => 'M' + pts.map(([x, y]) => `${N(x)} ${N(y)}`).join('L') + 'z';
-  const el = (d, eo) => `<path${eo ? ' fill-rule="evenodd"' : ''} d="${d}"/>`;
+  const el = (d, eo) => `<path${eo && d.indexOf('M', 1) > 0 ? ' fill-rule="evenodd"' : ''} d="${d}"/>`;
   const slit = (x, y, h = 9) => arch(x, y, 2.4, h);
   const finial = (cx, y, h) => rect(cx - 0.6, y - h, 1.2, h + 1) + ell(cx, y - h * 0.55, 1.6);
 
@@ -179,15 +191,21 @@
     return d;
   }
 
-  /** Crenellated block: Jerusalem merlons (rectangles with small pyramidal caps). */
+  /** Crenellated block: Jerusalem merlons (rectangles with small pyramidal caps). Relative steps are taken between
+   *  rounded absolute points, so long walls land exactly on x1 (keeps the 1-unit seams beside towers crisp). */
   function cren(x0, x1, y, bottom = FLOOR, m = {}) {
     const mw = m.w || 8, gap = m.gap || 5.5, mh = m.h || 6, cap = m.cap == null ? 2.6 : m.cap;
     const n = Math.max(1, Math.round((x1 - x0 + gap) / (mw + gap)));
     const w = (x1 - x0 - (n - 1) * gap) / n;
-    let d = `M${N(x0)} ${N(bottom)}V${N(y - mh)}`;
+    let px = N(x0), py = N(y - mh), d = `M${px} ${N(bottom)}V${py}`;
+    const to = (x, yy) => {
+      const nx = N(x), ny = N(yy), dx = N(nx - px), dy = N(ny - py);
+      d += dy === 0 ? `h${dx}` : dx === 0 ? `v${dy}` : `l${dx} ${dy}`; px = nx; py = ny;
+    };
     for (let i = 0; i < n; i++) {
-      d += `l${N(w / 2)} ${N(-cap)}l${N(w / 2)} ${N(cap)}`;
-      if (i < n - 1) d += `v${N(mh)}h${N(gap)}v${N(-mh)}`;
+      const xa = x0 + i * (w + gap);
+      to(xa + w / 2, y - mh - cap); to(xa + w, y - mh);
+      if (i < n - 1) { to(xa + w, y); to(xa + w + gap, y); to(xa + w + gap, y - mh); }
     }
     return d + `V${N(bottom)}z`;
   }
@@ -196,7 +214,7 @@
   /** Italian cypress: slim flame, widest a third of the way up, soft pointed tip. */
   function cypressD(h, { lean = 0, slim = 1 } = {}) {
     const w = h * 0.17 * slim, tw = w * 0.08;
-    const prof = [[0.035, 0.3], [0.09, 0.43], [0.2, 0.5], [0.34, 0.485], [0.5, 0.42], [0.65, 0.33], [0.79, 0.22], [0.9, 0.12], [0.97, 0.045]];
+    const prof = [[0.035, 0.3], [0.14, 0.48], [0.32, 0.49], [0.54, 0.4], [0.75, 0.25], [0.92, 0.09]];
     const lx = (t) => lean * w * t * t;
     const right = prof.map(([t, hw]) => [lx(t) + hw * w, -t * h]);
     const left = prof.slice().reverse().map(([t, hw]) => [lx(t) - hw * w, -t * h]);
@@ -218,7 +236,7 @@
     clumps.forEach(([cx, cy, rr], i) => {
       const X = (cx + j(0.04)) * W, Y = (cy + j(0.05)) * H, RX = rr * W * (0.94 + r() * 0.12), RY = RX * 0.8;
       crown += ell(X, Y, RX, RY);
-      if (i < 4 || i === 5 || i === 6) for (let a = -175; a <= -5; a += 30 + r() * 18) {   // leafy scalloped edge
+      if (i < 4 || i === 5 || i === 6) for (let a = -172; a <= -8; a += 36 + r() * 18) {   // leafy scalloped edge
         const t = (a * Math.PI) / 180, br = W * (0.032 + r() * 0.02);
         crown += ell(X + Math.cos(t) * RX * 0.93, Y + Math.sin(t) * RY * 0.93, br, br * 0.85);
       }
@@ -367,7 +385,7 @@
       const top = env(x + w / 2) + (rnd() - 0.5) * (opts.jitter || 22);
       let d = rect(x, top, w, FLOOR - top);
       const wy = top + 6 + rnd() * 4;
-      if (!clip || wy + 9 < clip - 2) {
+      if ((!clip || wy + 9 < clip - 2) && rnd() < (opts.win ?? 1)) {
         const n = Math.max(1, Math.floor((w - 6) / 11)), pair = rnd() < 0.35 && n >= 2;
         for (let i = 0; i < n; i++) {
           if (pair && i % 2) continue;
@@ -410,7 +428,7 @@
     // ---- far plane: the Old City behind the walls ----
     const env = (x) => 228 - 30 * Math.exp(-(((x - 1920) / 700) ** 2));
     coarse(() => {
-      houses(far, 880, 2800, rnd, env, { clip: 242 });
+      houses(far, 880, 2800, rnd, env, { clip: 242, win: 0.75 });
       houses(far, 330, 870, rnd, (x) => gCity.y(x) - 24, { wMin: 18, wVar: 26, jitter: 10 });
       houses(far, 2820, 3340, rnd, (x) => gCity.y(x) - 24, { wMin: 18, wVar: 26, jitter: 10 });
     });
@@ -479,11 +497,11 @@
     const defs = [`<path id="@cs" d="${cypressD(40, {})}"/>`, `<path id="@ct" d="${cypressD(54, { lean: 0.1 })}"/>`];
     const use = (k, x, y) => `<use href="#@${k}" x="${N(x)}" y="${N(y)}"/>`;
     // far ridge: Mount Scopus / Mount of Olives line, highest right of centre
-    const ridge = contour([[0, 214], [260, 198], [560, 186], [820, 192], [1100, 178], [1400, 170], [1700, 178], [2000, 168], [2300, 150], [2560, 156],
-      [2820, 170], [3100, 166], [3380, 184], [3640, 198], [3840, 210]]);
+    const ridge = contour([[0, 204], [300, 172], [640, 152], [920, 170], [1250, 140], [1520, 156], [1760, 136], [2060, 150], [2360, 114], [2620, 128],
+      [2880, 154], [3160, 138], [3460, 164], [3700, 180], [3840, 196]]);
     far.push(el(ridge.d));
-    const hills = contour([[0, 246], [300, 232], [620, 222], [900, 228], [1200, 218], [1560, 222], [1920, 214], [2300, 220], [2700, 216], [3000, 224],
-      [3300, 218], [3600, 232], [3840, 244]]);
+    const hills = contour([[0, 240], [340, 216], [700, 206], [1000, 220], [1340, 200], [1680, 212], [2000, 198], [2340, 208], [2700, 196], [3040, 214],
+      [3380, 204], [3640, 222], [3840, 238]]);
     near.push(el(hills.d));
     coarse(() => [[180, 420], [700, 980], [1240, 1520], [1700, 2140], [2360, 2640], [2900, 3180], [3420, 3640]].forEach(([a, b]) =>
       houses(near, a, b, rnd, (x) => hills.y(x) - 14, { wMin: 12, wVar: 18, jitter: 10 })));
@@ -497,14 +515,21 @@
   }
 
   const skyCache = {};
-  /** skyline('front'|'back') → SVG string (wide viewBox 3840×320, white silhouettes). */
+  /** skyline('front'|'back') → SVG string (viewBox 3840×320, white silhouettes, bottom-centred).
+   *  The masked paper-cut artwork is embedded as an <image> data URL: the browser rasterises it once and caches the
+   *  bitmap, so parallax moves cost nothing (inline SVG masks re-rasterise on every frame). */
   function skyline(layer = 'front') {
     const key = layer === 'back' ? 'back' : 'front';
-    if (!skyCache[key]) skyCache[key] = key === 'back' ? buildBack() : buildFront();
-    const id = uid('sk');
-    return `<svg class="art-skyline art-skyline-${key}" xmlns="${NS}" viewBox="0 0 ${SW} ${SH}" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false" style="will-change:transform">` +
-      skyCache[key].replace(/@/g, id) + '</svg>';
+    if (!skyCache[key]) {
+      const art = `<svg xmlns="${NS}" viewBox="0 0 ${SW} ${SH}">${(key === 'back' ? buildBack() : buildFront()).replace(/@/g, 'k')}</svg>`;
+      const url = 'data:image/svg+xml;charset=utf-8,' + art.replace(/[%#<>"&\n\r\t]/g, (c) => '%' + c.charCodeAt(0).toString(16).padStart(2, '0'));
+      skyCache[key] = { art, svg: `<svg class="art-skyline art-skyline-${key}" xmlns="${NS}" viewBox="0 0 ${SW} ${SH}" preserveAspectRatio="xMidYMax meet" aria-hidden="true" focusable="false">` +
+        `<image width="${SW}" height="${SH}" href="${url}"/></svg>` };
+    }
+    return skyCache[key].svg;
   }
+  /** The raw (inline, masked) skyline SVG — for previews/export. */
+  const skylineArt = (layer = 'front') => (skyline(layer), skyCache[layer === 'back' ? 'back' : 'front'].art);
 
   // ======================================================================
   // Book-cube — isometric hardcover book (standalone SVG: no fonts, no CSS vars)
@@ -555,6 +580,13 @@
       g += `<path fill="${gold}" d="${pg([0.8, a, z - 1.1], [a - 0.4, a, z - 1.1], [a - 0.4, a, z + 1.1], [0.8, a, z + 1.1])}"/>`;
       g += `<path fill="#fff6d6" fill-opacity=".55" d="${pg([0.8, a, z + 0.7], [a - 0.4, a, z + 0.7], [a - 0.4, a, z + 1.1], [0.8, a, z + 1.1])}"/>`;
     });
+    // ribbon bookmark hanging out of the page block, past the lower board (swallowtail end)
+    const ry = a * 0.66, rw = 3.6, rz = t * 0.6, dr = 1.6, re = -9;
+    g += `<path fill="#3a2a10" fill-opacity=".18" d="${pg([a - o, ry - rw / 2 - 0.8, rz - 0.8], [a - o, ry + rw / 2 + 0.6, rz - 0.8], [a - o, ry + rw / 2 + 0.6, b], [a - o, ry - rw / 2 - 0.8, b])}"/>`;
+    g += `<path fill="${shade(color, 0.28)}" d="${pg([a - o, ry - rw / 2, rz], [a - o, ry + rw / 2, rz], [a + 0.2, ry + rw / 2, b], [a + 0.2, ry + rw / 2 + dr, re],
+      [a + 0.2, ry + dr, re + 2.6], [a + 0.2, ry - rw / 2 + dr, re], [a + 0.2, ry - rw / 2, b])}"/>`;
+    g += `<path fill="#fff" fill-opacity=".26" d="${pg([a - o, ry - rw / 2, rz], [a - o, ry - rw / 2 + 0.8, rz], [a + 0.2, ry - rw / 2 + 0.8, b], [a + 0.2, ry - rw / 2 + 0.8 + dr, re + 0.8], [a + 0.2, ry - rw / 2 + dr, re], [a + 0.2, ry - rw / 2, b])}"/>`;
+
     // top face: cover with blind-tooled frame and gold ornament / letter
     g += `<path fill="url(#${id}t)" d="${pg([0, 0, t], [a, 0, t], [a, a, t], [0, a, t])}"/>`;
     const f = 4.6;
@@ -575,15 +607,7 @@
       g += `<path transform="${tr}" fill="${gold}" stroke="#8f5c12" stroke-opacity=".5" stroke-width="${N(0.5 / sc * 10) / 10}" d="${d}"/>`;
     } else if (ornament) {
       // small gold hexagram of six rhombi (echoes the emblem)
-      let st = '';
-      const r = 7.2, s6 = r / Math.sqrt(3);
-      for (let i = 0; i < 6; i++) {
-        const th = ((-90 + 60 * i) * Math.PI) / 180, d30 = Math.PI / 6, kk = 0.84;
-        const P = (ang, rr) => [rr * Math.cos(ang), rr * Math.sin(ang)];
-        const mc = P(th, r / 2);
-        const q = [P(th, 0), P(th - d30, s6), P(th, r), P(th + d30, s6)].map(([x, y]) => [mc[0] + (x - mc[0]) * kk, mc[1] + (y - mc[1]) * kk]);
-        st += 'M' + q.map(([x, y]) => `${N(x)} ${N(y)}`).join('L') + 'z';
-      }
+      const st = hexRhombi(0, 0, 7.4, 0.6).map(ptsD).join('');
       g += `<path transform="translate(-.5 .6) ${onCover}" fill="${shade(color, 0.45)}" fill-opacity=".45" d="${st}"/>`;
       g += `<path transform="${onCover}" fill="${gold}" d="${st}"/>`;
     }
@@ -606,5 +630,5 @@
     }
   } catch (e) { /* ignore */ }
 
-  CH.art = Object.assign(CH.art || {}, { EMBLEM_COLORS, emblem, wordmark, skyline, bookCube, bookCubeURL });
+  CH.art = Object.assign(CH.art || {}, { EMBLEM_COLORS, emblem, wordmark, skyline, skylineArt, bookCube, bookCubeURL });
 })(window.CH = window.CH || {});
