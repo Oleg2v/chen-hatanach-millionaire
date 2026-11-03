@@ -149,14 +149,14 @@
   const B = {
     cv: null, ctx: null, dpr: 1, w: 0, h: 0, unit: 1, dirty: true, raf: 0, last: 0, T: 0,
     cubes: [], motes: [], discs: [], spr: null, artSpr: false,
-    I: 1, It: 1, q: 1, ema: 16.7, slowMs: 0, fastMs: 0,
+    I: 1, It: 1, q: 1, ema: 16.7, cost: 0, slowMs: 0, fastMs: 0,
     mx: 0, my: 0, tmx: 0, tmy: 0,
   };
   // depth layers: far (small, blurred, pre-saturated so it stays clean when translucent) → near (big, crisp, soft shadow)
   const LEVELS = [
     { px: 76, filter: 'blur(2.2px) saturate(1.5) brightness(1.1)', haze: 0.07, shadow: 0 },
     { px: 120, filter: 'blur(0.7px) saturate(1.25) brightness(1.05)', haze: 0.03, shadow: 0 },
-    { px: 192, filter: '', haze: 0, shadow: 1 },
+    { px: 192, filter: 'saturate(1.12) brightness(1.03)', haze: 0, shadow: 1 },
   ];
   const PAD = 1.36; // sprite canvas = cube size × PAD (room for blur + shadow)
 
@@ -299,14 +299,18 @@
     const kI = 1 - Math.exp(-dt / 0.9), kM = 1 - Math.exp(-dt / 0.6);
     B.I += (B.It - B.I) * kI;
     B.mx += (B.tmx - B.mx) * kM; B.my += (B.tmy - B.my) * kM;
+    const t0 = performance.now();
     drawBg(dt);
+    B.cost += (performance.now() - t0 - B.cost) * 0.05;
     B.raf = requestAnimationFrame(bgFrame);
   }
   function drawBg(dt) {
     const ctx = B.ctx, dpr = B.dpr, w = B.w, h = B.h, u = B.unit, T = B.T, I = B.I;
-    const aMul = I <= 1 ? 0.3 + 0.7 * I : 1 + (I - 1) * 0.4;
+    // calm mostly by thinning the flock (translucent colour over navy turns muddy), a little by alpha; 0 = off
+    const on = smooth(0, 0.22, I);
+    const aMul = (0.55 + 0.45 * Math.min(I, 1)) * on + Math.max(0, I - 1) * 0.4;
     const vMul = (0.45 + 0.55 * I) * (reduced() ? 0.3 : 1);
-    const active = Math.round(B.cubes.length * clamp(0.5 + 0.34 * I, 0.3, 1) * B.q);
+    const active = Math.round(B.cubes.length * clamp(0.35 + 0.44 * I, 0, 1) * on * B.q);
     const kVis = 1 - Math.exp(-dt / 1.2);
     const cx = w / 2, cy = h * 0.42, rx = w * 0.3, ry = h * 0.3;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -338,7 +342,7 @@
       const Y = c.y - B.my * (3 + 14 * c.z) * u;
       // calm zone: nearer cubes fade softly while they pass behind the centre (titles / question board)
       const ex = (X - cx) / rx, ey = (Y - cy) / ry;
-      const calm = 1 - 0.62 * c.z * (1 - smooth(0.25, 1.5, ex * ex + ey * ey));
+      const calm = 1 - 0.52 * c.z * (1 - smooth(0.25, 1.5, ex * ex + ey * ey));
       const a = Math.min(1, c.a * aMul) * c.vis * calm * smooth(-s * 0.6, h * 0.24, c.y);
       if (a < 0.004) continue;
       const rot = c.r0 + Math.sin(T * c.rF + c.ph * 1.7) * c.rA + c.spin * T;
@@ -410,7 +414,7 @@
   }
 
   // ================================================================ OVERLAY
-  const O = { cv: null, ctx: null, dpr: 1, vw: 0, vh: 0, raf: 0, last: 0, T: 0, ema: 16.7, wind: 0, pieces: [], sparks: [], ents: [] };
+  const O = { cv: null, ctx: null, dpr: 1, vw: 0, vh: 0, raf: 0, last: 0, now: 0, T: 0, ema: 16.7, cost: 0, wind: 0, pieces: [], sparks: [], ents: [] };
   const MAX_PIECES = 1600, MAX_SPARKS = 3600;
   const G = 980; // stage px/s²
 
@@ -430,7 +434,7 @@
     return !!O.ctx;
   }
   function fitOverlay() {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2), vw = window.innerWidth, vh = window.innerHeight;
+    const dpr = B.q < 0.7 ? 1 : Math.min(window.devicePixelRatio || 1, 2), vw = window.innerWidth, vh = window.innerHeight;
     if (vw === O.vw && vh === O.vh && dpr === O.dpr) return;
     O.vw = vw; O.vh = vh; O.dpr = dpr;
     O.cv.width = Math.round(vw * dpr); O.cv.height = Math.round(vh * dpr);
@@ -451,12 +455,14 @@
     if (document.hidden) return;
     const dtms = O.last ? ts - O.last : 16.7;
     if (O.last && dtms < 250) O.ema += (dtms - O.ema) * 0.08;
-    O.last = ts;
-    const dt = clamp(dtms / 1000, 0, 0.05);
+    O.last = ts; O.now = ts;
+    const dt = clamp(dtms / 1000, 0, 0.1);   // tolerant clamp: effects stay in sync with WAAPI down to ~10fps
     O.T += dt;
     fitOverlay();
+    const t0 = performance.now();
     step(dt);
     render();
+    O.cost += (performance.now() - t0 - O.cost) * 0.08;
     if (alive()) O.raf = requestAnimationFrame(frame);
     else { O.ctx.setTransform(1, 0, 0, 1, 0, 0); O.ctx.clearRect(0, 0, O.cv.width, O.cv.height); O.last = 0; }
   }
@@ -535,9 +541,11 @@
   function sparkAlpha(s) {
     const t = s.age / s.life;
     let a = s.a * (t < s.fin ? t / s.fin : 1) * Math.pow(1 - t, s.fo);
-    if (s.tw) a *= 0.55 + 0.45 * Math.sin(s.age * s.tw + s.seed);
+    if (s.tw) a *= 0.78 + 0.22 * Math.sin(s.age * s.tw + s.seed);
     return a;
   }
+  /** Current size; twinkling sparks pulse in size rather than fading to grey. */
+  const sparkSize = (s) => (s.s0 + (s.s1 - s.s0) * (s.age / s.life)) * (s.tw ? 0.72 + 0.28 * Math.sin(s.age * s.tw * 0.9 + s.seed + 1.1) : 1);
 
   function render() {
     const ctx = O.ctx, v = view(), dpr = O.dpr;
@@ -583,7 +591,7 @@
       const s = L[i];
       if (!s.nb || s.age < 0) continue;
       const a = sparkAlpha(s);
-      if (a > 0.004) drawSpark(ctx, s, s.img, a, s.s0 + (s.s1 - s.s0) * (s.age / s.life), S, ox, oy);
+      if (a > 0.004) drawSpark(ctx, s, s.img, a, sparkSize(s), S, ox, oy);
     }
 
     // 3) light (additive): entities, glow sparks, blooms
@@ -595,7 +603,7 @@
       if (s.age < 0 || (s.nb && !s.bloom)) continue;
       const a = sparkAlpha(s);
       if (a < 0.004) continue;
-      const z = s.s0 + (s.s1 - s.s0) * (s.age / s.life);
+      const z = sparkSize(s);
       if (s.nb) {
         ctx.globalAlpha = Math.min(1, a * 0.5); ctx.setTransform(S, 0, 0, S, ox, oy);
         const zb = z * s.bloom;
@@ -736,7 +744,7 @@
       O.ents.push(ringEnt(x, y, col, 18, 150, 0.55, 0, 0.6));
       for (let i = 0; i < n; i++) {
         const a = rand(0, TAU), sp = rand(160, 680), vx = Math.cos(a) * sp, vy = Math.sin(a) * sp - rand(80, 260);
-        if (Math.random() < 0.6) addGlint(Math.random() < 0.25 ? '#fff6e0' : col, x, y, vx, vy, rand(0.85, 1.5), rand(26, 52), { drag: 2.4, ay: 520, tw: rand(9, 18), s1: 8, fo: 1.1 });
+        if (Math.random() < 0.6) addGlint(Math.random() < 0.15 ? '#fff6e0' : col, x, y, vx, vy, rand(0.85, 1.5), rand(26, 52), { drag: 2.4, ay: 520, tw: rand(9, 18), s1: 8, fo: 1.1 });
         else addSpark(dot, x, y, vx, vy, rand(0.7, 1.3), rand(8, 14), { drag: 2.4, ay: 520, tw: rand(12, 24), s1: 3, fo: 1.1 });
       }
     } else {
@@ -779,11 +787,12 @@
       const glow = sprite('glow', col), hot = sprite('glow', '#fff4d6'), glint = sprite('glint', col), dot = sprite('dot', col);
       const TAIL = 0.24, M = 34, rate = 300 * quality();
       const pos = (tt) => bezierPoint(from, c, to, ease(clamp(tt, 0, 1)));
+      const t0 = performance.now();               // wall-clock, so the head stays glued to the WAAPI label on slow machines
       let age = 0, acc = 0, prev = pos(0);
       O.ents.push({
         resolve: finish,
         step(dt) {
-          age += dt;
+          age = Math.max(0, ((O.now || performance.now()) - t0) / 1000);
           const t = age / dur;
           if (t <= 1) {
             const h = pos(t), k = 1 / (dt || 1 / 60), vx = (h.x - prev.x) * k, vy = (h.y - prev.y) * k;
@@ -825,8 +834,10 @@
   }
 
   // ---------------------------------------------------------------- 50:50 dissolve
-  /** Shared crumbling-edge mask: alpha = noise > x (x: 0 opaque side → 1 transparent side), soft-thresholded. */
+  /** Shared crumbling-edge mask: alpha = noise > edgeF(x) (x: 0 opaque side → w transparent side), soft-thresholded.
+   *  The noise is histogram-equalized (uniform 0..1) so the edge eats the box at a constant rate, with no plateaus. */
   let edgeTex = null;
+  const edgeF = (tx, w) => ((tx + 0.5) / w) * 1.2 - 0.1;   // margins: fully opaque at x=0, fully clear at x=w
   function dissolveEdge() {
     if (edgeTex) return edgeTex;
     const w = 208, h = 216, cv = canvasOf(w, h), g = cv.getContext('2d'), img = g.createImageData(w, h), n = new Float32Array(w * h);
@@ -839,14 +850,15 @@
     };
     const L1 = lattice(6, 7), L2 = lattice(16, 18), L3 = lattice(44, 46);
     for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) {
-        const i = y * w + x;
-        let v = 0.5 * sample(L1, x, y) + 0.26 * sample(L2, x, y) + 0.14 * sample(L3, x, y) + 0.1 * Math.random();
-        v = clamp((v - 0.5) * 1.9 + 0.5, 0, 1);
-        n[i] = v;
-        const f = ((x + 0.5) / w) * 1.24 - 0.12;               // margins: fully opaque at x=0, fully clear at x=w
-        img.data[i * 4 + 3] = clamp((v - f) * 7 + 0.5, 0, 1) * 255;
-      }
+      for (let x = 0; x < w; x++) n[y * w + x] = 0.5 * sample(L1, x, y) + 0.26 * sample(L2, x, y) + 0.14 * sample(L3, x, y) + 0.1 * Math.random();
+    }
+    const sorted = Float32Array.from(n).sort(), N = n.length;
+    for (let i = 0; i < N; i++) {                                // value → percentile
+      let lo = 0, hi = N - 1;
+      const v = n[i];
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (sorted[mid] < v) lo = mid + 1; else hi = mid; }
+      n[i] = lo / N;
+      img.data[i * 4 + 3] = clamp((n[i] - edgeF(i % w, w)) * 7 + 0.5, 0, 1) * 255;
     }
     g.putImageData(img, 0, 0);
     edgeTex = { url: cv.toDataURL('image/png'), w, h, n };
@@ -857,7 +869,7 @@
    *  Resolves when gone (~900ms) and leaves the element with visibility:hidden. */
   function dissolve(el, opts = {}) {
     if (!el || !el.isConnected) return Promise.resolve();
-    const o = Object.assign({ colors: DUST, flakes: GLASS_FLAKES, duration: 900, count: 520 }, opts);
+    const o = Object.assign({ colors: DUST, flakes: GLASS_FLAKES, duration: 900, count: 480 }, opts);
     const colors = Array.isArray(o.colors) && o.colors.length ? o.colors : DUST;
     const flakes = Array.isArray(o.flakes) && o.flakes.length ? o.flakes : GLASS_FLAKES;
     const D = reduced() ? 400 : Math.max(240, Number(o.duration) || 900);
@@ -891,7 +903,7 @@
 
     // particles: each grain is released exactly when the crumbling edge clears its pixel
     if (overlay()) {
-      const q = quality(), n = Math.round((Number(o.count) || 520) * q), kx = r.w / W, ky = r.h / H, rad = Math.min(28, H / 2);
+      const q = quality(), n = Math.round((Number(o.count) || 480) * q), kx = r.w / W, ky = r.h / H, rad = Math.min(28, H / 2);
       const accents = [...el.querySelectorAll('.letter')].map((c) => { const b = stageRect(c); return { x: b.cx, y: b.cy, r: Math.min(b.w, b.h) / 2 }; });
       const dSec = D / 1000;
       for (let i = 0; i < n; i++) {
@@ -903,7 +915,7 @@
         }
         const ty = Math.min(tex.h - 1, (((py + M) / (H + 2 * M)) * tex.h) | 0);
         let tx = 0;                                           // first texel (moving with the mask) that turns clear here
-        for (; tx < tex.w; tx++) if (tex.n[ty * tex.w + tx] < ((tx + 0.5) / tex.w) * 1.24 - 0.12) break;
+        for (; tx < tex.w; tx++) if (tex.n[ty * tex.w + tx] < edgeF(tx, tex.w)) break;
         const L = px - ((tx + 0.5) / tex.w) * Sz;             // edge-layer left position at release
         const delay = ((x0 + span - L) / travel) * dSec;
         const sx = r.x + px * kx, sy = r.y + py * ky;
@@ -955,9 +967,10 @@
   /** Debug/perf snapshot. */
   function stats() {
     return {
-      bgFps: Math.round(1000 / B.ema), fxFps: Math.round(1000 / O.ema), quality: B.q, intensity: +B.I.toFixed(2),
+      bgFps: Math.round(1000 / B.ema), fxFps: Math.round(1000 / O.ema), bgMs: +B.cost.toFixed(2), fxMs: +O.cost.toFixed(2),
+      quality: B.q, intensity: +B.I.toFixed(2),
       cubes: B.cubes.filter((c) => c.vis > 0.5).length, artSprites: B.artSpr,
-      pieces: O.pieces.length, sparks: O.sparks.length, ents: O.ents.length, overlayRunning: !!O.raf,
+      pieces: O.pieces.length, sparks: O.sparks.length, ents: O.ents.length, overlayRunning: !!O.raf, bgRunning: !!B.raf,
     };
   }
 

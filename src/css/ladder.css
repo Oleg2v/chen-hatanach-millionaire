@@ -16,7 +16,7 @@
 }
 .ladder .lad-crown { width: 360px; height: 360px; transform-origin: 180px 330px; will-change: transform;
   animation: lad-sway 9s ease-in-out infinite; }
-.ladder .lad-crown-b { z-index: 2; filter: drop-shadow(0 10px 18px rgba(2, 12, 40, 0.35)); }
+.ladder .lad-crown-b { z-index: 2; }
 .ladder .lad-trunk { z-index: 3; width: 360px; height: 960px; }
 .ladder .lad-crown-f { z-index: 4; }
 @keyframes lad-sway { 0%, 100% { transform: rotate(-0.6deg); } 50% { transform: rotate(0.6deg); } }
@@ -29,13 +29,14 @@
   background: radial-gradient(circle, rgba(255, 240, 190, 0.95) 0%, rgba(255, 214, 110, 0.55) 22%, rgba(255, 190, 70, 0.18) 46%, rgba(255, 190, 70, 0) 70%);
   animation: lad-glow 3.8s ease-in-out infinite; will-change: transform, opacity;
 }
-.ladder .lad-star .rays {
-  width: 300px; height: 300px; opacity: 0.7;
-  background: repeating-conic-gradient(from 0deg, rgba(255, 230, 160, 0) 0deg, rgba(255, 230, 160, 0.55) 3deg, rgba(255, 230, 160, 0) 7deg, rgba(255, 230, 160, 0) 20deg);
-  -webkit-mask-image: radial-gradient(circle, #000 12%, rgba(0, 0, 0, 0.5) 30%, transparent 62%);
-          mask-image: radial-gradient(circle, #000 12%, rgba(0, 0, 0, 0.5) 30%, transparent 62%);
-  animation: lad-spin 46s linear infinite; will-change: transform;
+.ladder .lad-star .rays { width: 300px; height: 300px; opacity: 0.75; animation: lad-spin 46s linear infinite; will-change: transform; }
+.ladder .lad-star .rays svg { width: 100%; height: 100%; }
+.ladder .lad-star .burst {
+  width: 150px; height: 150px; border-radius: 0;
+  filter: drop-shadow(0 0 5px rgba(255, 214, 110, 0.75)) drop-shadow(0 4px 6px rgba(2, 10, 40, 0.35));
 }
+.ladder .lad-star .burst svg { width: 100%; height: 100%; }
+.ladder .lad-star.is-lit .burst { filter: drop-shadow(0 0 9px rgba(255, 226, 130, 1)) drop-shadow(0 0 22px rgba(255, 200, 90, 0.6)) drop-shadow(0 4px 6px rgba(2, 10, 40, 0.35)); }
 .ladder .lad-star .disc {
   width: 86px; height: 86px; padding: 5px;
   background: conic-gradient(from 210deg, #fff3c4, #e7b448, #8f5c12, #f5d27a, #b27a1f, #fff3c4);
@@ -60,7 +61,7 @@
 /* ---- book-cubes orbiting the crown ---- */
 .ladder .lad-orbit { inset: 0; position: absolute; z-index: auto; }
 .ladder .lad-cube { position: absolute; left: 0; top: 0; width: 52px; height: 52px; will-change: transform, opacity; }
-.ladder .lad-cube .bob { width: 100%; height: 100%; animation: lad-bob 5.6s ease-in-out infinite; filter: drop-shadow(0 6px 8px rgba(2, 10, 40, 0.35)); }
+.ladder .lad-cube .bob { width: 100%; height: 100%; animation: lad-bob 5.6s ease-in-out infinite; will-change: transform; }
 .ladder .lad-cube svg { width: 100%; height: 100%; }
 @keyframes lad-bob { 0%, 100% { transform: translateY(-5px) rotate(-7deg); } 50% { transform: translateY(5px) rotate(6deg); } }
 
@@ -135,9 +136,7 @@
 .ladder .lad-sage .cl-happy, .ladder .lad-sage .cl-open { display: none; }
 .ladder .lad-sage.is-cheer .cl-happy, .ladder .lad-sage.is-cheer .cl-open { display: inline; }
 .ladder .lad-sage.is-cheer .cl-eye, .ladder .lad-sage.is-cheer .cl-smile { display: none; }
-.ladder .lad-sage .cl-breath { transform-box: fill-box; transform-origin: 50% 100%; animation: lad-breathe 3.6s ease-in-out infinite; }
 @keyframes lad-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
-@keyframes lad-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.012, 1.022); } }
 
 .ladder .lad-fx { z-index: 9; inset: 0; position: absolute; }
 .ladder .lad-fx .leaf { position: absolute; left: 0; top: 0; width: 15px; height: 8px; }
@@ -150,7 +149,7 @@
    Victory wreath (result screen)
    ========================================================================== */
 .wreath { position: absolute; inset: 0; pointer-events: none; }
-.wreath > svg { width: 100%; height: 100%; overflow: visible; filter: drop-shadow(0 10px 22px rgba(2, 10, 40, 0.5)); }
+.wreath > svg { width: 100%; height: 100%; overflow: visible; }
 .wreath .wr-stem { stroke-dasharray: 1 1; stroke-dashoffset: 1; }
 .wreath .wr-leaf { transform-box: fill-box; transform-origin: 0% 50%; transform: scale(0); opacity: 0; }
 .wreath .wr-olive { transform: scale(0); opacity: 0; }

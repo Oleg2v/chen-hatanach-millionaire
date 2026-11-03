@@ -7,7 +7,6 @@
   const W = 360, H = 880;                     // design size in stage px (the scene is scaled to fit its container)
   const G = 846;                              // feet at level 0 (top of the mound)
   const TOP = 374;                            // feet on the highest rung
-  const STAR = { x: 180, y: 52 };
   const D2R = Math.PI / 180;
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const lerp = (a, b, t) => a + (b - a) * t;
@@ -211,10 +210,17 @@
     defs += vg('fm', [[0, '#8cc46a'], [0.3, '#4f9447'], [0.75, '#2a6439'], [1, '#1a4730']]);
     defs += vg('ff', [[0, '#c6e68c'], [0.28, '#7ab857'], [0.7, '#3f8541'], [1, '#245a34']]);
 
-    const pads = (list, grad, rim, rimOp) => list.map(([x, y, rx, ry]) => {
-      const d = pad(x, y, rx, ry, rnd);
-      return `<path d="${d}" fill="${rim}" fill-opacity="${rimOp}" transform="translate(-1.6 -3)"/><path d="${d}" fill="url(#@${grad})"/>`;
-    }).join('');
+    defs += '<linearGradient id="@side" gradientUnits="userSpaceOnUse" x1="40" y1="60" x2="340" y2="300">' +
+      '<stop offset="0" stop-color="#fff4c8" stop-opacity=".16"/><stop offset=".42" stop-color="#fff4c8" stop-opacity="0"/>' +
+      '<stop offset=".62" stop-color="#03163a" stop-opacity="0"/><stop offset="1" stop-color="#03163a" stop-opacity=".42"/></linearGradient>';
+    let layer = 0;
+    // pads + one light pass across the whole layer (lit from the upper left, like the trunk)
+    const pads = (list, grad, rim, rimOp) => {
+      const ds = list.map(([x, y, rx, ry]) => pad(x, y, rx, ry, rnd));
+      const cp = `@cp${++layer}`;
+      return ds.map((d) => `<path d="${d}" fill="${rim}" fill-opacity="${rimOp}" transform="translate(-1.6 -3)"/><path d="${d}" fill="url(#@${grad})"/>`).join('') +
+        `<clipPath id="${cp}">${ds.map((d) => `<path d="${d}"/>`).join('')}</clipPath><rect x="0" y="0" width="360" height="360" fill="url(#@side)" clip-path="url(#${cp})"/>`;
+    };
     // leaves: bright ones fanning out of the lit top edge, dark ones hanging under the shaded bottom
     const leaves = (list, nTop, nBot, topCols, botCols) => {
       let o = '';
@@ -246,19 +252,39 @@
     };
 
     const back = [[182, 96, 96, 64], [94, 152, 88, 60], [268, 148, 90, 60], [56, 222, 62, 50], [304, 222, 62, 50],
-      [180, 196, 122, 84], [118, 276, 84, 46], [244, 278, 84, 46]];
+      [180, 196, 122, 84], [118, 276, 84, 46], [244, 278, 84, 46], [22, 196, 30, 22], [340, 186, 28, 22], [118, 70, 44, 28], [252, 64, 44, 28]];
     const mid = [[180, 80, 70, 42], [110, 128, 68, 42], [252, 124, 70, 44], [54, 190, 50, 36], [306, 192, 50, 36],
       [150, 182, 72, 42], [238, 186, 68, 42], [92, 244, 64, 38], [272, 248, 62, 38]];
     const front = [[138, 114, 48, 28], [228, 106, 50, 28], [74, 172, 44, 28], [292, 170, 44, 28], [182, 152, 54, 30],
       [122, 226, 56, 30], [244, 228, 56, 30], [180, 288, 66, 32], [58, 256, 40, 24], [304, 256, 40, 24]];
 
-    let b = pads(back, 'fb', '#a6e1ff', 0.55);
+    // olives: small clusters (ripe violet-black and young green) hanging under a few front pads
+    defs += '<radialGradient id="@olp" cx=".34" cy=".3" r=".8"><stop offset="0" stop-color="#9b7bb8"/><stop offset=".45" stop-color="#4c2f66"/><stop offset="1" stop-color="#1e1030"/></radialGradient>' +
+      '<radialGradient id="@olg" cx=".34" cy=".3" r=".8"><stop offset="0" stop-color="#eef6a8"/><stop offset=".5" stop-color="#a8c24a"/><stop offset="1" stop-color="#55701f"/></radialGradient>';
+    const olives = (list) => {
+      let o = '';
+      list.forEach(([x, y, rx, ry]) => {
+        const n = 2 + ((rnd() * 2) | 0), bx = x + (rnd() - 0.5) * rx * 0.9, by = y + ry * 0.62;
+        for (let j = 0; j < n; j++) {
+          const off = j - (n - 1) / 2, rot = -off * 34 + (rnd() - 0.5) * 14, ripe = rnd() < 0.55;
+          const ox = bx + off * 5.6, oy = by + 5.5 - Math.abs(off) * 1.5;
+          o += `<g transform="translate(${f1(ox)} ${f1(oy)}) rotate(${f1(rot)})"><path d="M0-5.4 0-8" stroke="#3d5a26" stroke-width="1.2" stroke-linecap="round"/>` +
+            `<ellipse cy="-.4" rx="2.9" ry="4.9" fill="url(#@ol${ripe ? 'p' : 'g'})" stroke="#140b1e" stroke-opacity=".45" stroke-width=".7"/>` +
+            '<ellipse cx="-1" cy="-2.4" rx=".8" ry="1.5" fill="#fff" fill-opacity=".7"/></g>';
+        }
+      });
+      return o;
+    };
+
+    let b = '<ellipse cx="182" cy="292" rx="132" ry="26" fill="#04142e" fill-opacity=".22"/>';
+    b += pads(back, 'fb', '#a6e1ff', 0.55);
     b += leaves(back, 6, 3, ['#3e7d52', '#4f8f5e', '#8fcfee'], ['#123a28', '#1a4632']);
     b += pads(mid, 'fm', '#d7f0a8', 0.5);
     b += leaves(mid, 7, 4, ['#7fbb5c', '#98cd6c', '#5e9e4c'], ['#1d4b31', '#24563a']);
     let f = pads(front, 'ff', '#f1ffcf', 0.6);
     f += leaves(front, 9, 5, ['#a9d872', '#c2e48c', '#86c25c', '#dcefb4'], ['#2a6038', '#235532', '#2f6a3c']);
     f += sprays(front.concat(mid.slice(0, 3)), 2);
+    f += olives([front[0], front[3], front[5], front[6], front[2]]);
     CROWN = { defs, back: b, front: f };
     return CROWN;
   }
@@ -271,9 +297,56 @@
   function hexagram() {
     const id = 'lhx' + (++seq);
     const tri = (r, a0) => [0, 1, 2].map((i) => { const a = (a0 + i * 120) * D2R; return `${f1(50 + r * Math.cos(a))},${f1(50 + r * Math.sin(a))}`; }).join(' ');
-    return `<svg viewBox="0 0 100 100"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1bf"/><stop offset=".45" stop-color="#ffd56a"/><stop offset="1" stop-color="#c98a1e"/></linearGradient></defs>` +
-      `<g fill="url(#${id})" stroke="#8f5c12" stroke-width="2" stroke-linejoin="round"><polygon points="${tri(46, -90)}"/><polygon points="${tri(46, 90)}"/></g>` +
-      `<circle cx="50" cy="50" r="12" fill="#fff6d6" fill-opacity=".55"/></svg>`;
+    return `<svg viewBox="0 0 100 100"><defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff1bf"/><stop offset=".45" stop-color="#ffd56a"/><stop offset="1" stop-color="#c98a1e"/></linearGradient>` +
+      `<radialGradient id="${id}b" cx=".4" cy=".35" r=".7"><stop offset="0" stop-color="#2f66c4"/><stop offset="1" stop-color="#0b2459"/></radialGradient></defs>` +
+      `<circle cx="50" cy="50" r="50" fill="url(#${id}b)"/><g fill="url(#${id})" stroke="#8f5c12" stroke-width="2" stroke-linejoin="round"><polygon points="${tri(40, -90)}"/><polygon points="${tri(40, 90)}"/></g>` +
+      `<circle cx="50" cy="50" r="10" fill="#fff6d6" fill-opacity=".5"/></svg>`;
+  }
+  /** Faceted gold star behind the emblem disc: 6 long points (aligned with the emblem's rhombi) + 6 short ones,
+   *  each point split into a lit and a shaded facet (light from the top-left). Flat fills → no ids, cached. */
+  let BURST = null;
+  function burstSVG() {
+    if (BURST) return BURST;
+    const light = -125 * D2R;
+    const RAMP = [[122, 74, 14], [226, 160, 50], [255, 244, 200]];
+    const gold = (t) => {
+      const [a, b, u] = t < 0.5 ? [RAMP[0], RAMP[1], t * 2] : [RAMP[1], RAMP[2], (t - 0.5) * 2];
+      return `rgb(${a.map((v, i) => Math.round(lerp(v, b[i], u))).join(',')})`;
+    };
+    const P = (a, r) => `${f1(Math.cos(a) * r)} ${f1(Math.sin(a) * r)}`;
+    const points = (n, R, r, a0, k) => {
+      let s = '';
+      for (let i = 0; i < n; i++) {
+        const a = a0 + (i * 2 * Math.PI) / n, h = Math.PI / n;
+        [-1, 1].forEach((sg) => {
+          const lam = Math.cos(a + sg * h * 0.5 - light);
+          s += `<path d="M0 0L${P(a + sg * h, r)}L${P(a, R)}Z" fill="${gold(clamp((lam + 1) / 2 * k + (sg < 0 ? 0.04 : 0), 0, 1))}"/>`;
+        });
+      }
+      return s;
+    };
+    const main = -90 * D2R, sub = -60 * D2R;
+    const outline = (n, R, r, a0) => {
+      const pts = [];
+      for (let i = 0; i < n * 2; i++) pts.push(P(a0 + (i * Math.PI) / n, i % 2 ? r : R));
+      return `M${pts.join('L')}Z`;
+    };
+    BURST = '<svg viewBox="-100 -100 200 200" aria-hidden="true">' +
+      `<g stroke-linejoin="round">${points(6, 80, 30, sub, 0.82)}<path d="${outline(6, 80, 30, sub)}" fill="none" stroke="#6b3f08" stroke-opacity=".5" stroke-width="1.2"/>` +
+      `${points(6, 99, 36, main, 1)}<path d="${outline(6, 99, 36, main)}" fill="none" stroke="#6b3f08" stroke-opacity=".55" stroke-width="1.3"/></g></svg>`;
+    return BURST;
+  }
+  /** Static light rays (rotated as a composited layer — no per-frame masking). */
+  function raysSVG(id) {
+    let d = '';
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * 360 + (i % 2) * 4, w = i % 3 ? 2.2 : 3.6;
+      const p = (deg, r) => `${f1(150 + Math.cos(deg * D2R) * r)} ${f1(150 + Math.sin(deg * D2R) * r)}`;
+      d += `M${p(a - w, 18)}L${p(a, 150)}L${p(a + w, 18)}Z`;
+    }
+    return `<svg viewBox="0 0 300 300"><defs><radialGradient id="${id}ry" cx=".5" cy=".5" r=".5"><stop offset=".08" stop-color="#fff1c4" stop-opacity=".9"/>` +
+      `<stop offset=".45" stop-color="#ffd56a" stop-opacity=".32"/><stop offset="1" stop-color="#ffd56a" stop-opacity="0"/></radialGradient></defs>` +
+      `<path d="${d}" fill="url(#${id}ry)"/></svg>`;
   }
   const CUBE_COLORS = ['#e63a35', '#3db54a', '#ec4f9c', '#17b8c4', '#f7941d', '#2a6fd6'];
   const LETTERS = ['א', 'ב', 'ת', 'ש', 'ה', 'ל'];
@@ -362,9 +435,9 @@
       '<ellipse class="cl-ground" cx="2" cy="1" rx="30" ry="5.5" fill="#06210f" fill-opacity=".38"/>' +
       '<g class="cl-root">' +
       leg('legB', true) +
-      `<g data-j="torsoB"><g class="cl-breath">${arm('armB', true)}${skirt}${robe}${collar}</g></g>` +
+      `<g data-j="torsoB">${arm('armB', true)}${skirt}${robe}${collar}</g>` +
       leg('legF', false) +
-      `<g data-j="torsoF"><g class="cl-breath">${sash}${arm('armF', false)}<g data-j="head">${drape}${face}${beard}${mouth}${stache}${nose}${eye}${wrap}${brow}</g></g></g>` +
+      `<g data-j="torsoF">${sash}${arm('armF', false)}<g data-j="head">${drape}${face}${beard}${mouth}${stache}${nose}${eye}${wrap}${brow}</g></g>` +
       '</g></svg>';
   }
 
@@ -382,7 +455,7 @@
     climbA: { lean: 12, head: 16, tF: 74, sF: -112, fF: 26, tB: 6, sB: -8, fB: 0, uF: 150, eF: 4, uB: 106, eB: 30 },
     climbB: { lean: 12, head: 16, tF: 6, sF: -8, fF: 0, tB: 70, sB: -108, fB: 26, uF: 112, eF: 26, uB: 146, eB: 6 },
     crouch: { lean: 18, head: 8, tF: 82, sF: -128, fF: 20, tB: 44, sB: -86, fB: 10, uF: 120, eF: 34, uB: 100, eB: 44 },
-    reach:  { lean: 6, head: 22, tF: 22, sF: -26, fF: -10, tB: -4, sB: -14, fB: -14, uF: 152, eF: 2, uB: 132, eB: 6 },
+    reach:  { lean: 6, head: 22, tF: 22, sF: -26, fF: -10, tB: -4, sB: -14, fB: -14, uF: 138, eF: 6, uB: 120, eB: 10 },
     cheer:  { lean: -7, head: 20, tF: 4, sF: -4, fF: 0, tB: -10, sB: 6, fB: 0, uF: 142, eF: 4, uB: 236, eB: -14 },
     cheerR: { lean: -5, head: 20, tF: 46, sF: -70, fF: 16, tB: 4, sB: -6, fB: 0, uF: 142, eF: 4, uB: 234, eB: -14 },
   };
@@ -412,7 +485,7 @@
     const crownB = el('div', 'lad-crown lad-crown-b', `<svg viewBox="0 0 ${W} 360" width="${W}" height="360" overflow="visible"><defs>${sub(crown.defs)}</defs>${sub(crown.back)}</svg>`);
     const trunk = el('div', 'lad-trunk', `<svg viewBox="0 0 ${W} 960" width="${W}" height="960" overflow="visible"><defs>${sub(tree.defs)}</defs>${sub(tree.body)}</svg>`);
     const crownF = el('div', 'lad-crown lad-crown-f', `<svg viewBox="0 0 ${W} 360" width="${W}" height="360" overflow="visible"><defs>${sub(crown.defs)}</defs>${sub(crown.front)}</svg>`);
-    const star = el('div', 'lad-star', '<i class="glow"></i><i class="rays"></i><i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i>');
+    const star = el('div', 'lad-star', `<i class="glow"></i><i class="rays">${raysSVG(id)}</i><i class="burst">${burstSVG()}</i><i class="sp s1"></i><i class="sp s2"></i><i class="sp s3"></i>`);
     const disc = el('div', 'disc', starInner());
     star.append(disc);
     const rungs = el('div', 'lad-rungs');
@@ -483,7 +556,8 @@
         Object.assign(glow.style, { left: f1(bx) + 'px', top: f1(by) + 'px', width: f1(r * 3.6) + 'px', height: f1(r * 3.6) + 'px' });
         const badge = el('b', 'badge');
         badge.textContent = String(i);
-        Object.assign(badge.style, { left: f1(bx) + 'px', top: f1(by) + 'px', '--r': r + 'px' });
+        Object.assign(badge.style, { left: f1(bx) + 'px', top: f1(by) + 'px' });
+        badge.style.setProperty('--r', r + 'px');
         rung.append(glow, pegL, pegR, badge);
         rungs.append(rung);
         rungEls.push({ rung, badge });
@@ -540,13 +614,12 @@
     function run(step) {
       return new Promise((resolve) => {
         stop();
-        let last = performance.now();
-        const t0 = last;
+        let last = performance.now(), t = 0;     // simulated clock: frame-rate independent, never skips a phase
         anim = { done: resolve };
         const frame = (now) => {
           if (destroyed) { resolve(); return; }
-          const dt = Math.min(0.05, (now - last) / 1000); last = now;
-          const finished = step((now - t0) / 1000, dt);
+          const dt = Math.min(1 / 15, Math.max(0, (now - last) / 1000)); last = now; t += dt;
+          const finished = step(t, dt);
           render();
           if (finished) { raf = 0; anim = null; resolve(); } else raf = requestAnimationFrame(frame);
         };
@@ -578,19 +651,20 @@
         const q = clamp(p, 0, 1);
         st.x = lerp(from.x, dst.x, p) + Math.sin(q * Math.PI) * (up ? 16 : 6);
         st.y = lerp(from.y, dst.y, p);
-        // stretch while flying, squash on the overshoot
-        const s = clamp(v * 0.035, -0.08, 0.12) - clamp((p - 1) * 0.9, -0.06, 0.06);
+        // stretch while flying up, squash as the spring overshoots and pulls back
+        const s = clamp(v * 0.022, -0.07, 0.08);
         st.sy = 1 + s; st.sx = 1 - s * 0.55;
         // pose: crouch → reach (take-off) → rest (landing), pose switch mid-air
         st.pose = q < 0.45 ? blendPose(POSES.crouch, POSES.reach, ease(q / 0.4)) : blendPose(POSES.reach, endPose, ease((q - 0.45) / 0.45));
         beardStep((st.y - prevY) / Math.max(dt, 1e-3), dt); prevY = st.y;
-        if (!landed && p > 0.92) {
+        const settled = t > SQ + 0.3 && Math.abs(p - 1) < 0.003 && Math.abs(v) < 0.05 && Math.abs(st.beard) < 0.4;
+        const done = settled || t > SQ + 1.1;
+        if (!landed && (p > 0.92 || done)) {
           landed = true; level = to; markRungs(to);
           sage.classList.toggle('on-ground', to <= 0);
           sparkleAt(to);
         }
-        const settled = t > SQ + 0.3 && Math.abs(p - 1) < 0.003 && Math.abs(v) < 0.05 && Math.abs(st.beard) < 0.4;
-        if (settled || t > SQ + 1.2) { st.x = dst.x; st.y = dst.y; st.sx = st.sy = 1; st.pose = { ...endPose }; st.beard = 0; return true; }
+        if (done) { st.x = dst.x; st.y = dst.y; st.sx = st.sy = 1; st.pose = { ...endPose }; st.beard = 0; return true; }
         return false;
       });
     }
@@ -622,7 +696,8 @@
     function flareStar() {
       star.classList.add('is-lit');
       const opts = { duration: 1300, easing: 'cubic-bezier(.16,1,.3,1)' };
-      const g = star.querySelector('.glow'), rays = star.querySelector('.rays');
+      const g = star.querySelector('.glow'), rays = star.querySelector('.rays'), burst = star.querySelector('.burst');
+      burst.animate && burst.animate([{ transform: 'translate(-50%,-50%) scale(1)' }, { transform: 'translate(-50%,-50%) scale(1.4)', offset: 0.28 }, { transform: 'translate(-50%,-50%) scale(1)' }], { duration: 1200, easing: 'cubic-bezier(.34,1.56,.64,1)' });
       g.animate && g.animate([{ transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }, { transform: 'translate(-50%,-50%) scale(2.1)', opacity: 1, offset: 0.25 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }], opts);
       rays.animate && rays.animate([{ opacity: 0.7, scale: '1' }, { opacity: 1, scale: '1.7', offset: 0.25 }, { opacity: 0.7, scale: '1' }], opts);
       disc.animate && disc.animate([{ transform: 'translate(-50%,-50%) scale(1) rotate(0deg)' }, { transform: 'translate(-50%,-50%) scale(1.3) rotate(30deg)', offset: 0.3 }, { transform: 'translate(-50%,-50%) scale(1) rotate(60deg)' }], { duration: 1100, easing: 'cubic-bezier(.34,1.56,.64,1)' });
@@ -648,15 +723,35 @@
         if (t > 1.0) { st.y = base.y; st.sx = st.sy = 1; return true; }
         return false;
       }).then(() => {
+        const cheering = () => !destroyed && !raf && svg.classList.contains('is-cheer');
+        if (level >= N) { celebrate(cheering); return; }
         cheerTimer = setTimeout(() => {           // relax back into the resting pose
-          if (destroyed || raf) return;
+          if (!cheering()) return;
           const from = { ...st.pose }, to = restPose(level);
           run((t) => { st.pose = blendPose(from, to, ease(t / 0.4)); if (t > 0.4) { svg.classList.remove('is-cheer'); return true; } return false; });
-        }, 1800);
+        }, 2600);
       });
     }
+    /** At the top he keeps celebrating (result screen): a small happy hop every few seconds until something else moves him. */
+    function celebrate(cheering) {
+      if (reduced) return;
+      cheerTimer = setTimeout(() => {
+        if (!cheering()) return;
+        const base = feetAt(level, N);
+        run((t, dt) => {
+          const prev = st.y;
+          st.y = base.y - Math.max(0, Math.sin((t / 0.42) * Math.PI)) * 12;
+          const land = t > 0.42 ? Math.max(0, 1 - (t - 0.42) / 0.16) : 0;
+          st.sy = 1 - 0.06 * land; st.sx = 1 + 0.04 * land;
+          beardStep((st.y - prev) / Math.max(dt, 1e-3), dt);
+          if (t > 0.62 && (Math.abs(st.beard) < 0.4 || t > 1.2)) { st.y = base.y; st.sx = st.sy = 1; return true; }
+          return false;
+        }).then(() => cheering() && celebrate(cheering));
+      }, 2600 + Math.random() * 1400);
+    }
 
-    const enqueue = (fn) => (queue = queue.then(() => (destroyed ? undefined : fn())).catch((e) => console.error(e)));
+    let gen = 0;                                   // bumped by direct setLevel/setSteps: queued animations are dropped
+    const enqueue = (fn) => { const g = gen; return (queue = queue.then(() => (destroyed || g !== gen ? undefined : fn())).catch((e) => console.error(e))); };
 
     const api = {
       el: root,
@@ -665,7 +760,7 @@
       setLevel(k, o = {}) {
         k = clamp(Math.round(k), 0, N);
         if (!o.animate) {
-          clearTimeout(cheerTimer); stop();
+          gen++; clearTimeout(cheerTimer); stop();
           level = k; place(k); markRungs();
           return Promise.resolve();
         }
@@ -678,7 +773,7 @@
       setSteps(n) {
         N = clamp(Math.round(n) || 1, 1, 15);
         level = clamp(level, 0, N);
-        clearTimeout(cheerTimer); stop();
+        gen++; clearTimeout(cheerTimer); stop();
         buildRungs(); place(level);
       },
       _pose(name) { if (POSES[name]) { stop(); st.pose = { ...POSES[name] }; svg.classList.toggle('is-cheer', /^cheer/.test(name)); render(); } },   // dev aid
@@ -716,7 +811,7 @@
       gold('rb', 0, 0, 0, 1, [[0, '#ff6b6b'], [0.45, '#d42a36'], [1, '#7e1220']]) +      // ribbon
       gold('rd', 0, 0, 0, 1, [[0, '#b81f2c'], [1, '#5e0c16']]) +
       `<radialGradient id="${id}ol" cx=".35" cy=".3" r=".8"><stop offset="0" stop-color="#fff8dc"/><stop offset=".35" stop-color="#ffd56a"/><stop offset="1" stop-color="#9a6212"/></radialGradient>` +
-      `<linearGradient id="${id}sh" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".9"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
+      `<linearGradient id="${id}sh" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".78"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>` +
       `<radialGradient id="${id}gl" cx=".5" cy=".5" r=".5"><stop offset=".62" stop-color="#ffd56a" stop-opacity="0"/><stop offset=".8" stop-color="#ffd56a" stop-opacity=".22"/><stop offset="1" stop-color="#ffd56a" stop-opacity="0"/></radialGradient>`;
 
     // stems: from the bottom crossing, up each side, open gap at the top
@@ -729,58 +824,70 @@
       }
       return pts;
     };
-    const leafD = (L, w) => `M0 0C${f1(L * 0.22)} ${f1(-w * 0.62)} ${f1(L * 0.62)} ${f1(-w * 0.62)} ${L} 0Z`;
-    const leafE = (L, w) => `M0 0C${f1(L * 0.22)} ${f1(w * 0.58)} ${f1(L * 0.62)} ${f1(w * 0.58)} ${L} 0Z`;
-    const parts = { stems: [], leaves: [], olives: [] };
+    const leafD = (L, w) => `M0 0C${f1(L * 0.2)} ${f1(-w * 0.64)} ${f1(L * 0.62)} ${f1(-w * 0.66)} ${L} 0Z`;
+    const leafE = (L, w) => `M0 0C${f1(L * 0.2)} ${f1(w * 0.6)} ${f1(L * 0.62)} ${f1(w * 0.6)} ${L} 0Z`;
+    const rnd = rng(77);
     let stemsSvg = '', leavesSvg = '', olivesSvg = '', maskSvg = '';
     [-1, 1].forEach((s) => {
       const pts = side(s);
       const d = smooth(pts.map((p) => [p[0], p[1]]));
-      stemsSvg += `<path class="wr-stem" d="${d}" pathLength="1" fill="none" stroke="url(#${id}st)" stroke-width="6" stroke-linecap="round"/>` +
-        `<path class="wr-stem hi" d="${d}" pathLength="1" fill="none" stroke="#fff3c4" stroke-opacity=".7" stroke-width="1.6" stroke-linecap="round" transform="translate(${-s * 0.8} -1)"/>`;
+      stemsSvg += `<path class="wr-stem" d="${d}" pathLength="1" fill="none" stroke="#6b3f08" stroke-opacity=".55" stroke-width="8.5" stroke-linecap="round"/>` +
+        `<path class="wr-stem" d="${d}" pathLength="1" fill="none" stroke="url(#${id}st)" stroke-width="6" stroke-linecap="round"/>` +
+        `<path class="wr-stem" d="${d}" pathLength="1" fill="none" stroke="#fff3c4" stroke-opacity=".7" stroke-width="1.6" stroke-linecap="round" transform="translate(${-s * 0.8} -1)"/>`;
       maskSvg += `<path d="${d}" fill="none" stroke="#fff" stroke-width="6"/>`;
-      const n = 13;
+      const n = 17;
       for (let i = 0; i < n; i++) {
-        const t = 0.07 + (i / (n - 1)) * 0.86, k = Math.round(t * (pts.length - 1));
+        const t = 0.035 + (i / (n - 1)) * 0.925, k = Math.round(t * (pts.length - 1));
         const [x, y, a] = pts[k];
         const tan = a - s * 90;                    // direction of growth (toward the top)
-        const L = lerp(54, 32, t), w = L * 0.38;
+        const last = i === n - 1;
         [1, -1].forEach((side2, j) => {
-          if (i === n - 1 && j) return;
-          const ang = tan + side2 * s * (i === n - 1 ? 8 : 38 + (j ? 6 : 0));
-          const ox = x + Math.cos((tan + side2 * 90 * s) * D2R) * 2, oy = y + Math.sin((tan + side2 * 90 * s) * D2R) * 2;
+          if (last && j) return;
+          const L = lerp(60, 34, t) * (0.92 + rnd() * 0.16), w = L * 0.4;
+          const ang = tan + side2 * s * (last ? 6 : 32 + j * 6 + (rnd() - 0.5) * 8);
+          const off = (tan + side2 * 90 * s) * D2R;
+          const ox = x + Math.cos(off) * 2.5, oy = y + Math.sin(off) * 2.5;
           const lit = side2 * s < 0;              // outer leaves catch the light
-          const body = `<path d="${leafD(L, w)}" fill="url(#${id}${lit ? 'la' : 'lb'})"/><path d="${leafE(L, w)}" fill="url(#${id}${lit ? 'lb' : 'la'})" fill-opacity=".92"/>` +
-            `<path d="M2 0L${f1(L * 0.9)} 0" stroke="#7c4a0c" stroke-opacity=".55" stroke-width="1.1" stroke-linecap="round"/>` +
-            `<path d="${leafD(L, w)}" fill="none" stroke="#fff3c4" stroke-opacity=".45" stroke-width=".8"/>`;
+          const body = `<path d="${leafD(L, w)}" fill="url(#${id}${lit ? 'la' : 'lb'})"/><path d="${leafE(L, w)}" fill="url(#${id}${lit ? 'lb' : 'la'})" fill-opacity=".94"/>` +
+            `<path d="M3 0Q${f1(L * 0.5)} ${f1(-w * 0.06)} ${f1(L * 0.88)} 0" stroke="#7c4a0c" stroke-opacity=".6" stroke-width="1.2" fill="none" stroke-linecap="round"/>` +
+            `<path d="${leafD(L, w)}${leafE(L, w)}" fill="none" stroke="#6b3f08" stroke-opacity=".38" stroke-width=".9"/>` +
+            `<path d="M${f1(L * 0.14)} ${f1(-w * 0.3)}C${f1(L * 0.3)} ${f1(-w * 0.52)} ${f1(L * 0.55)} ${f1(-w * 0.52)} ${f1(L * 0.74)} ${f1(-w * 0.3)}" fill="none" stroke="#fffbe6" stroke-opacity=".7" stroke-width="1.1" stroke-linecap="round"/>`;
           const tr = `translate(${f1(ox)} ${f1(oy)}) rotate(${f1(ang)})`;
           leavesSvg += `<g transform="${tr}"><g class="wr-leaf" data-t="${t.toFixed(3)}">${body}</g></g>`;
           maskSvg += `<path transform="${tr}" d="${leafD(L, w)}${leafE(L, w)}" fill="#fff"/>`;
         });
-        if (i % 3 === 1 && i < n - 2) {            // olives in pairs on short stalks
-          const oa = tan - s * 90 * 0.9, ox = x + Math.cos(oa * D2R) * 15, oy = y + Math.sin(oa * D2R) * 15;
-          olivesSvg += `<g class="wr-olive" data-t="${t.toFixed(3)}" style="transform-origin:${f1(x)}px ${f1(y)}px">` +
-            `<path d="M${f1(x)} ${f1(y)}L${f1(ox)} ${f1(oy)}" stroke="url(#${id}st)" stroke-width="2"/>` +
-            `<ellipse cx="${f1(ox)}" cy="${f1(oy)}" rx="7" ry="9.5" transform="rotate(${f1(oa - 90)} ${f1(ox)} ${f1(oy)})" fill="url(#${id}ol)" stroke="#7c4a0c" stroke-opacity=".6" stroke-width="1"/>` +
-            `<circle cx="${f1(ox - 2.2)}" cy="${f1(oy - 3)}" r="2" fill="#fff" fill-opacity=".85"/></g>`;
-          maskSvg += `<ellipse cx="${f1(ox)}" cy="${f1(oy)}" rx="7" ry="9.5" fill="#fff"/>`;
+        if (i % 3 === 2 && i < n - 2) {            // glossy olives in pairs, on the inner side
+          [0, 1].forEach((q) => {
+            const oa = tan - s * (q ? 62 : 104), ln = q ? 17 : 14;
+            const ox = x + Math.cos(oa * D2R) * ln, oy = y + Math.sin(oa * D2R) * ln;
+            olivesSvg += `<g class="wr-olive" data-t="${t.toFixed(3)}" style="transform-origin:${f1(x)}px ${f1(y)}px">` +
+              `<path d="M${f1(x)} ${f1(y)}L${f1(ox)} ${f1(oy)}" stroke="url(#${id}st)" stroke-width="2.2"/>` +
+              `<ellipse cx="${f1(ox)}" cy="${f1(oy)}" rx="7.6" ry="10.4" transform="rotate(${f1(oa - 90)} ${f1(ox)} ${f1(oy)})" fill="url(#${id}ol)" stroke="#6b3f08" stroke-opacity=".55" stroke-width="1"/>` +
+              `<ellipse cx="${f1(ox - 2.4)}" cy="${f1(oy - 3.4)}" rx="2.4" ry="3" fill="#fff" fill-opacity=".85"/></g>`;
+            maskSvg += `<ellipse cx="${f1(ox)}" cy="${f1(oy)}" rx="7.6" ry="10.4" fill="#fff"/>`;
+          });
         }
       }
     });
 
     // ribbon bow at the bottom
-    const by = C + R + 2;
-    const ribbon = `<g class="wr-ribbon" style="transform-origin:${C}px ${by}px">` +
-      `<path d="M${C - 8} ${by + 6}C${C - 22} ${by + 34} ${C - 40} ${by + 58} ${C - 56} ${by + 78}L${C - 40} ${by + 74}L${C - 34} ${by + 92}C${C - 20} ${by + 66} ${C - 6} ${by + 40} ${C + 2} ${by + 10}Z" fill="url(#${id}rd)"/>` +
-      `<path d="M${C + 8} ${by + 6}C${C + 22} ${by + 34} ${C + 40} ${by + 58} ${C + 56} ${by + 78}L${C + 40} ${by + 74}L${C + 34} ${by + 92}C${C + 20} ${by + 66} ${C + 6} ${by + 40} ${C - 2} ${by + 10}Z" fill="url(#${id}rb)"/>` +
-      `<path d="M${C - 4} ${by}C${C - 26} ${by - 26} ${C - 62} ${by - 26} ${C - 60} ${by - 4}C${C - 58} ${by + 16} ${C - 26} ${by + 14} ${C - 4} ${by + 4}Z" fill="url(#${id}rb)" stroke="#5e0c16" stroke-opacity=".5" stroke-width="1.2"/>` +
-      `<path d="M${C + 4} ${by}C${C + 26} ${by - 26} ${C + 62} ${by - 26} ${C + 60} ${by - 4}C${C + 58} ${by + 16} ${C + 26} ${by + 14} ${C + 4} ${by + 4}Z" fill="url(#${id}rb)" stroke="#5e0c16" stroke-opacity=".5" stroke-width="1.2"/>` +
-      `<path d="M${C - 10} ${by - 2}C${C - 26} ${by - 14} ${C - 46} ${by - 16} ${C - 52} ${by - 6}" fill="none" stroke="#ffb0a8" stroke-opacity=".7" stroke-width="2" stroke-linecap="round"/>` +
-      `<path d="M${C + 10} ${by - 2}C${C + 26} ${by - 14} ${C + 46} ${by - 16} ${C + 52} ${by - 6}" fill="none" stroke="#ffb0a8" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>` +
-      `<path d="M${C - 60} ${by - 4}C${C - 58} ${by + 16} ${C - 26} ${by + 14} ${C - 4} ${by + 4}M${C + 60} ${by - 4}C${C + 58} ${by + 16} ${C + 26} ${by + 14} ${C + 4} ${by + 4}" fill="none" stroke="#ffd56a" stroke-opacity=".8" stroke-width="1.6"/>` +
-      `<rect x="${C - 11}" y="${by - 11}" width="22" height="22" rx="7" fill="url(#${id}rb)" stroke="#5e0c16" stroke-opacity=".6" stroke-width="1.2"/>` +
-      `<rect x="${C - 11}" y="${by - 11}" width="22" height="22" rx="7" fill="none" stroke="#ffd56a" stroke-opacity=".85" stroke-width="1.4"/>` +
-      `<path d="M${C - 6} ${by - 6}Q${C} ${by - 9} ${C + 6} ${by - 6}" stroke="#fff" stroke-opacity=".6" stroke-width="2" fill="none" stroke-linecap="round"/></g>`;
+    const by = C + R + 4;
+    const loop = (sg) => {
+      const X = (v) => C + sg * v;
+      return `<path d="M${X(6)} ${by - 2}C${X(26)} ${by - 34} ${X(78)} ${by - 38} ${X(80)} ${by - 8}C${X(82)} ${by + 18} ${X(36)} ${by + 20} ${X(6)} ${by + 6}Z" fill="url(#${id}rb)" stroke="#5e0c16" stroke-opacity=".6" stroke-width="1.4"/>` +
+        `<path d="M${X(14)} ${by + 2}C${X(34)} ${by - 10} ${X(56)} ${by - 10} ${X(70)} ${by - 4}C${X(56)} ${by + 4} ${X(36)} ${by + 8} ${X(14)} ${by + 4}Z" fill="#5e0c16" fill-opacity=".45"/>` +
+        `<path d="M${X(14)} ${by - 6}C${X(30)} ${by - 26} ${X(62)} ${by - 30} ${X(72)} ${by - 12}" fill="none" stroke="#ffb3aa" stroke-opacity=".75" stroke-width="2.4" stroke-linecap="round"/>` +
+        `<path d="M${X(80)} ${by - 8}C${X(82)} ${by + 18} ${X(36)} ${by + 20} ${X(6)} ${by + 6}" fill="none" stroke="#ffd56a" stroke-opacity=".85" stroke-width="1.8"/>`;
+    };
+    const tail = (sg, g) => {
+      const X = (v) => C + sg * v;
+      return `<path d="M${X(-4)} ${by + 6}C${X(10)} ${by + 40} ${X(30)} ${by + 72} ${X(50)} ${by + 104}L${X(34)} ${by + 98}L${X(30)} ${by + 118}C${X(10)} ${by + 84} ${X(-6)} ${by + 48} ${X(-12)} ${by + 12}Z" fill="url(#${id}${g})" stroke="#5e0c16" stroke-opacity=".5" stroke-width="1.2"/>` +
+        `<path d="M${X(-2)} ${by + 14}C${X(10)} ${by + 46} ${X(26)} ${by + 74} ${X(44)} ${by + 100}" fill="none" stroke="#ffd56a" stroke-opacity=".7" stroke-width="1.5"/>`;
+    };
+    const ribbon = `<g class="wr-ribbon" style="transform-origin:${C}px ${by}px">` + tail(-1, 'rd') + tail(1, 'rb') + loop(-1) + loop(1) +
+      `<rect x="${C - 13}" y="${by - 13}" width="26" height="26" rx="8" fill="url(#${id}rb)" stroke="#5e0c16" stroke-opacity=".65" stroke-width="1.4"/>` +
+      `<rect x="${C - 10}" y="${by - 10}" width="20" height="20" rx="6" fill="none" stroke="#ffd56a" stroke-opacity=".9" stroke-width="1.5"/>` +
+      `<path d="M${C - 7} ${by - 6}Q${C} ${by - 10} ${C + 7} ${by - 6}" stroke="#fff" stroke-opacity=".65" stroke-width="2.2" fill="none" stroke-linecap="round"/></g>`;
 
     // twinkles
     const tw = [[-122, -168, 1], [178, -96, 0.8], [-206, 64, 0.7], [150, 168, 0.9], [36, -222, 0.75]].map(([dx, dy, s]) =>
@@ -789,8 +896,8 @@
     defs += `<mask id="${id}m" maskUnits="userSpaceOnUse" x="0" y="0" width="${V}" height="${V}">${maskSvg}</mask>`;
     const html = `<svg viewBox="0 0 ${V} ${V}" overflow="visible" aria-hidden="true"><defs>${defs}</defs>` +
       `<circle class="wr-glow" cx="${C}" cy="${C}" r="${R + 60}" fill="url(#${id}gl)"/>` +
-      `<g class="wr-body">${stemsSvg}${olivesSvg}${leavesSvg}${ribbon}</g>` +
-      `<g mask="url(#${id}m)"><g transform="rotate(24 ${C} ${C})"><rect class="wr-shine" x="-260" y="-80" width="190" height="${V + 160}" fill="url(#${id}sh)"/></g></g>` +
+      `<g class="wr-body">${stemsSvg}${leavesSvg}${olivesSvg}${ribbon}</g>` +
+      `<g mask="url(#${id}m)"><g transform="rotate(24 ${C} ${C})"><rect class="wr-shine" x="-200" y="-80" width="120" height="${V + 160}" fill="url(#${id}sh)"/></g></g>` +
       `<g class="wr-tws">${tw}</g></svg>`;
 
     const root = el('div', 'wreath', html);
@@ -810,18 +917,18 @@
       const k = reduced ? 0.25 : 1;
       const A = (elx, kf, o) => { if (!elx.animate) return null; const a = elx.animate(kf, { fill: 'both', ...o, duration: o.duration * k, delay: (o.delay || 0) * k }); anims.push(a); return a; };
       A(ribbonEl, [{ transform: 'scale(.2) rotate(-25deg)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 700, easing: SPRING });
-      const DRAW0 = 120, DRAW = 900;
+      const DRAW0 = 100, DRAW = 780;
       stems.forEach((s) => A(s, [{ strokeDashoffset: 1, strokeDasharray: '1 1' }, { strokeDashoffset: 0, strokeDasharray: '1 1' }], { duration: DRAW, delay: DRAW0, easing: 'cubic-bezier(.45,.05,.3,1)' }));
       // leaf i appears when the stem has grown past it
       const at = (t) => DRAW0 + DRAW * (1 - Math.pow(1 - t, 1.6)) * 0.94;
       leafEls.forEach((lf, i) => {
         const t = +lf.dataset.t;
-        A(lf, [{ transform: 'scale(0) rotate(-30deg)', opacity: 0 }, { opacity: 1, offset: 0.25 }, { transform: 'none', opacity: 1 }], { duration: 640, delay: at(t) + (i % 2) * 40, easing: SPRING });
+        A(lf, [{ transform: 'scale(0) rotate(-30deg)', opacity: 0 }, { opacity: 1, offset: 0.25 }, { transform: 'none', opacity: 1 }], { duration: 560, delay: at(t) + (i % 2) * 40, easing: SPRING });
       });
-      oliveEls.forEach((o) => A(o, [{ transform: 'scale(0)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 560, delay: at(+o.dataset.t) + 260, easing: SPRING }));
-      A(glowEl, [{ opacity: 0 }, { opacity: 1 }], { duration: 900, delay: 900, easing: 'ease-out' });
-      const sh = A(shine, [{ transform: 'translateX(0px)' }, { transform: `translateX(${V + 440}px)` }], { duration: 760, delay: 1080, easing: 'cubic-bezier(.45,0,.25,1)' });
-      tws.forEach((t, i) => A(t, [{ transform: 'scale(0) rotate(0deg)', opacity: 0 }, { transform: 'scale(1) rotate(45deg)', opacity: 1, offset: 0.4 }, { transform: 'scale(0) rotate(90deg)', opacity: 0 }], { duration: 900, delay: 1150 + i * 140, easing: 'ease-out' }));
+      oliveEls.forEach((o) => A(o, [{ transform: 'scale(0)', opacity: 0 }, { transform: 'none', opacity: 1 }], { duration: 480, delay: at(+o.dataset.t) + 220, easing: SPRING }));
+      A(glowEl, [{ opacity: 0 }, { opacity: 1 }], { duration: 800, delay: 800, easing: 'ease-out' });
+      const sh = A(shine, [{ transform: 'translateX(0px)' }, { transform: `translateX(${V + 380}px)` }], { duration: 640, delay: 1000, easing: 'cubic-bezier(.45,0,.25,1)' });
+      tws.forEach((t, i) => A(t, [{ transform: 'scale(0) rotate(0deg)', opacity: 0 }, { transform: 'scale(1) rotate(45deg)', opacity: 1, offset: 0.4 }, { transform: 'scale(0) rotate(90deg)', opacity: 0 }], { duration: 800, delay: 1000 + i * 120, easing: 'ease-out' }));
       return (sh ? sh.finished.catch(() => {}) : Promise.resolve()).then(() => undefined);
     }
     return { el: root, play, reset };

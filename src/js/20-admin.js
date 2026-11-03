@@ -53,13 +53,24 @@
   /** "בדיקה-20.xlsx" stays readable in RTL: the Latin extension is isolated at the end. */
   const fileLabel = (name) => {
     const m = String(name || '').match(/^(.*?)(\.[a-z0-9]{1,5})$/i);
-    return h('bdi.fname', { dir: 'rtl' }, m ? m[1] : String(name || ''), m ? h('bdi', { dir: 'ltr' }, m[2]) : null);
+    return h('span.fname', h('bdi', { dir: 'rtl' }, m ? m[1] : String(name || '')), m ? h('bdi.fext', { dir: 'ltr' }, m[2].toLowerCase()) : null);
   };
   const sizeTxt = (b) => (b < 1024 * 1024 ? `${nf(Math.max(0.1, b / 1024).toFixed(b < 10240 ? 1 : 0))} ק״ב` : `${(b / 1048576).toFixed(1)} מ״ב`);
   const okCount = (n) => (n === 1 ? 'שאלה אחת תקינה' : `${nf(n)} שאלות תקינות`);
   const valid = (q) => !S().validateQuestion(q).length;
+  /** Store validation strings, with the singular case worded naturally. */
+  const errTxt = (errs) => errs.map((e) => (/^חסרות 1 /.test(e) ? 'חסרה תשובה שגויה אחת' : e)).join(' · ');
+  /** Shorten at a word boundary, never between a letter and its nikud. */
+  function clip(s, n) {
+    s = String(s || '');
+    if (s.length <= n) return s;
+    let end = n;
+    while (end < s.length && /[֑-ׇ]/.test(s[end])) end++;
+    const sp = s.lastIndexOf(' ', end);
+    return (sp > n * 0.5 ? s.slice(0, sp) : s.slice(0, end)).trimEnd() + '…';
+  }
   const fileSafe = (s) => String(s || 'questions').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim() || 'questions';
-  const noMarks = (s) => String(s || '').replace(/[֑-ׇ‎‏]/g, '').toLowerCase();
+  const noMarks = (s) => String(s || '').replace(/[\u0591-\u05c7\u200e\u200f]/g, '').toLowerCase();
   const rtf = (() => { try { return new Intl.RelativeTimeFormat('he', { numeric: 'auto' }); } catch (e) { return null; } })();
   function ago(t) {
     if (!t || !rtf) return '';
@@ -141,7 +152,8 @@
     const view = tab === 'settings' ? renderSettings() : tab === 'questions' ? renderQuestions() : renderImport();
     const banner = S().storageOk ? null : h('div.adm-banner', ic('info'),
       h('div', h('b', 'האחסון בדפדפן חסום. '), 'השינויים יישמרו עד לסגירת החלון בלבד — לשמירה קבועה ייצאו את השאלות לקובץ JSON.'));
-    mainEl.replaceChildren(...[banner, view].filter(Boolean));
+    if (banner) view.prepend(banner);              // inside the page, so it shares the content edges
+    mainEl.replaceChildren(view);
     if (!opts.keepScroll) root.scrollTop = 0;
     motion(view, [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 380 });
     if (tab === 'questions') afterRowsMounted();
@@ -162,23 +174,28 @@
     savedTimer = setTimeout(() => { savedEl.dataset.state = 'idle'; }, 1900);
   }
 
-  // ---- snackbar with undo ----
-  let snackTimer = 0;
+  // ---- snackbar with undo (toasts lift above it while it is shown) ----
+  let snackTimer = 0, snackGen = 0;
   function snack(text, onUndo, ms = 6000) {
     clearTimeout(snackTimer);
+    const gen = ++snackGen;
+    snackEl.getAnimations().forEach((a) => a.cancel());       // a hide still in flight must not swallow this one
     const bar = h('span.adm-snack-bar');
     put(snackEl, ic('trash'), h('span.adm-snack-txt', text),
       onUndo ? h('button.adm-snack-undo', { type: 'button', onclick: () => { hideSnack(); onUndo(); } }, ic('undo'), 'ביטול') : null, bar);
     snackEl.hidden = false;
+    document.body.classList.add('adm-snack-on');
     motion(snackEl, [{ opacity: 0, transform: 'translate(-50%, 16px) scale(.96)' }, { opacity: 1, transform: 'translate(-50%, 0)' }], { duration: 360 });
     motion(bar, [{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: ms, easing: 'linear', fill: 'forwards' });
-    snackTimer = setTimeout(hideSnack, ms);
+    snackTimer = setTimeout(() => gen === snackGen && hideSnack(), ms);
   }
   function hideSnack() {
     clearTimeout(snackTimer);
+    document.body.classList.remove('adm-snack-on');
     if (!snackEl || snackEl.hidden) return;
+    const gen = snackGen;
     const a = motion(snackEl, [{ opacity: 1 }, { opacity: 0, transform: 'translate(-50%, 10px)' }], { duration: 180, easing: 'ease-in', fill: 'forwards' });
-    const done = () => { snackEl.hidden = true; a && a.cancel(); };
+    const done = () => { if (gen === snackGen) { snackEl.hidden = true; a && a.cancel(); } };
     a ? a.finished.then(done, done) : done();
   }
 
@@ -188,6 +205,7 @@
   function open(t) {
     if (!root) build();
     if (closing) { clearTimeout(closing); closing = null; }
+    root.getAnimations().forEach((a) => a.cancel());        // reopened mid-close: drop the fade-out
     const first = !isOpenFlag;
     isOpenFlag = true;
     root.hidden = false;
@@ -391,7 +409,8 @@
     const r = S().getRound();
     const played = Object.keys(r.results || {}).filter((n) => +n <= st.participants).length;
     const cur = r.current && r.current.n;
-    const tiles = h('div.rc-tiles', { 'aria-label': `${nf(played)} מתוך ${nf(st.participants)} משתתפים שיחקו` },
+    const cols = Math.ceil(st.participants / Math.ceil(st.participants / 12));     // even rows, no orphans (16 → 2×8)
+    const tiles = h('div.rc-tiles', { 'aria-label': `${nf(played)} מתוך ${nf(st.participants)} משתתפים שיחקו`, style: { '--cols': cols } },
       Array.from({ length: st.participants }, (_, i) => {
         const n = i + 1, res = S().resultOf(n);
         return h('span.rc-tile' + (res ? '.is-done' : '') + (cur === n ? '.is-now' : ''),
@@ -509,7 +528,8 @@
     { f: 'source', label: 'מקור', cls: 'c-src', ph: 'ספר פרק, פסוק' },
   ];
   const getF = (q, f) => (f[0] === 'w' ? (q.wrong || [])[+f[1]] : q[f]) || '';
-  const Q = { setId: null, tbody: null, search: '', onlyBad: false, timers: new Map(), refs: {} };
+  const Q = { setId: null, tbody: null, search: '', onlyBad: false, timers: new Map(), refs: {}, rest: null };
+  const FIRST_ROWS = 60, ROW_BATCH = 90;
   const pending = new Map();         // qid → { setId, tr, timer } (deleted, waiting for undo)
   const autosize = !(window.CSS && CSS.supports && CSS.supports('field-sizing', 'content'));
   const fit = (ta) => { if (autosize) { ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 2 + 'px'; } };
@@ -541,8 +561,10 @@
     tr.classList.toggle('is-invalid', bad);
     tr.dataset.bad = errs.length ? '1' : '';
     const issue = tr.querySelector('.q-issue');
-    if (issue) issue.replaceChildren(...(bad ? [ic('warn'), h('span', errs.join(' · '))] : []));
-    const flag = tr.querySelector('.q-flag'); if (flag) flag.title = bad ? errs.join(' · ') : '';
+    if (issue) issue.replaceChildren(...(bad ? [ic('warn'), h('span', errTxt(errs))] : []));
+    const flag = tr.querySelector('.q-flag'); if (flag) flag.title = bad ? errTxt(errs) : '';
+    // point at the exact cells that still need text
+    tr.querySelectorAll('textarea.q-cell').forEach((ta) => ta.classList.toggle('is-miss', bad && ta.dataset.f !== 'source' && !ta.value.trim()));
   }
 
   function scheduleSave(tr) {
@@ -572,7 +594,7 @@
   function commitDeletes() {
     pending.forEach((p, qid) => { clearTimeout(p.timer); S().deleteQuestion(p.setId, qid); p.tr.remove(); });
     const had = pending.size; pending.clear();
-    if (had) { updateCounts(); }
+    if (had) { hideSnack(); updateCounts(); }        // the undo offer is gone with them
   }
   /** Leaving the questions view: save, commit deletions, drop rows that were never filled in. */
   function leaveQuestions() {
@@ -686,7 +708,7 @@
 
     // --- toolbar ---
     const search = h('input.a-input.q-search-in', { type: 'search', placeholder: 'חיפוש בשאלות, בתשובות ובמקורות…', value: Q.search, dir: 'rtl', 'aria-label': 'חיפוש' });
-    search.addEventListener('input', () => { Q.search = search.value; applyFilter(); });
+    search.addEventListener('input', () => { flushRest(); Q.search = search.value; applyFilter(); });
     r.badCount = h('span.seg-count');
     r.filterBad = h('button.chip-toggle' + (Q.onlyBad ? '.is-on' : ''), { type: 'button', 'aria-pressed': String(Q.onlyBad),
       onclick: () => { Q.onlyBad = !Q.onlyBad; r.filterBad.classList.toggle('is-on', Q.onlyBad); r.filterBad.setAttribute('aria-pressed', String(Q.onlyBad)); applyFilter(); } },
@@ -701,7 +723,10 @@
     const tbody = h('tbody');
     Q.tbody = tbody;
     tbody.dataset.set = set.id;
-    set.questions.forEach((q, i) => tbody.append(rowEl(q, i)));
+    const all = set.questions.slice();
+    all.slice(0, FIRST_ROWS).forEach((q, i) => tbody.append(rowEl(q, i)));
+    Q.rest = null;
+    if (all.length > FIRST_ROWS) renderRest(tbody, all, FIRST_ROWS);
     const thead = h('thead', h('tr', h('th.c-num', '#'), FIELDS.map(({ label, cls }) => h('th.' + cls, cls === 'c-ok' || cls === 'c-bad' ? h('i.dot') : null, label)), h('th.c-act', h('span.sr', 'פעולות'))));
     const colgroup = h('colgroup', h('col.w-num'), h('col.w-q'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-src'), h('col.w-act'));
     const table = h('table.qt', colgroup, thead, tbody);
@@ -717,6 +742,24 @@
     const tip = h('p.q-tip', ic('info'), h('span', h('kbd', 'Enter'), ' עובר לשורה הבאה · ', h('kbd', 'Tab'), ' לתא הבא · אפשר להדביק כמה שורות ועמודות ישירות מ־Excel · ניקוד נשמר, טעמים מוסרים בהדבקה'));
     return h('section.adm-page.is-wide', h('div.qs', side, h('div.qs-main', head, toolbar, r.tableWrap, tip)));
   }
+
+  /** Big sets: the first screenful renders at once, the rest streams in small batches (keeps the tab switch instant). */
+  function renderRest(tbody, list, from) {
+    let i = from;
+    const step = (sync) => {
+      if (Q.tbody !== tbody) { Q.rest = null; return; }
+      const frag = document.createDocumentFragment();
+      const end = sync ? list.length : Math.min(list.length, i + ROW_BATCH);
+      for (; i < end; i++) if (!pending.has(list[i].id)) frag.append(rowEl(list[i], i));
+      tbody.append(frag);
+      if (Q.search || Q.onlyBad) applyFilter();
+      if (i < list.length) setTimeout(step, 24);
+      else { Q.rest = null; afterRowsMounted(); }
+    };
+    Q.rest = step;
+    setTimeout(step, 60);
+  }
+  const flushRest = () => { if (Q.rest) Q.rest(true); };
 
   function bindTable(tbody) {
     tbody.addEventListener('input', (e) => {
@@ -778,6 +821,7 @@
       return raw;
     }).filter((raw) => [raw.q, raw.correct, raw.source, ...raw.wrong].some((x) => String(x || '').trim()));
     if (extra.length) {
+      flushRest();
       const s = S().getSet(Q.setId), before = s.questions.length;
       S().appendQuestions(Q.setId, extra);
       s.questions.slice(before).forEach((q, i) => { const row = rowEl(q, before + i); Q.tbody.append(row); motion(row, [{ opacity: 0 }, { opacity: 1 }], { duration: 400, delay: i * 30 }); });
@@ -799,6 +843,7 @@
 
   function addRow() {
     if (!Q.tbody) return;
+    flushRest();
     if (Q.search || Q.onlyBad) {
       Q.search = ''; Q.onlyBad = false;
       const si = root.querySelector('.q-search-in'); if (si) si.value = '';
@@ -831,7 +876,7 @@
       if (empty) { S().deleteQuestion(setId, id); tr.remove(); updateCounts(); return; }
       pending.set(id, { setId, tr, timer: setTimeout(commitDeletes, 6500) });
       updateCounts();
-      snack(v.q ? `השאלה «${v.q.length > 34 ? v.q.slice(0, 32) + '…' : v.q}» נמחקה` : 'השאלה נמחקה', () => undoDelete(id), 6500);
+      snack(v.q ? `השאלה «${clip(v.q, 32)}» נמחקה` : 'השאלה נמחקה', () => undoDelete(id), 6500);
     };
     out ? out.finished.then(finish, finish) : finish();
   }
@@ -900,7 +945,7 @@
   // ======================================================================
   /** Header text → field key ('q' | 'correct' | 'source' | {w: digit|null}) or null. */
   function headerKey(raw) {
-    const s = String(raw == null ? '' : raw).replace(/[֑-ׇ‎‏﻿]/g, '')
+    const s = String(raw == null ? '' : raw).replace(/[\u0591-\u05c7\u200e\u200f\ufeff]/g, '')
       .replace(/[״"'׳`]/g, '').replace(/[\s_\-–—:.()[\]#]+/g, ' ').trim().toLowerCase();
     if (!s) return null;
     const c = s.replace(/ /g, '');
@@ -973,7 +1018,7 @@
 
   function parseJsonText(text) {
     let data;
-    try { data = JSON.parse(text.replace(/^﻿/, '')); } catch (e) { throw new Error('הקובץ אינו JSON תקין.'); }
+    try { data = JSON.parse(text.replace(/^\ufeff/, '')); } catch (e) { throw new Error('הקובץ אינו JSON תקין.'); }
     let name = null, list = null;
     if (Array.isArray(data)) list = data;
     else if (data && Array.isArray(data.questions)) { list = data.questions; name = data.name || null; }
@@ -998,15 +1043,15 @@
       const r = parseJsonText(decodeText(buf));
       return { name: r.name || base, kind: 'json', sheets: r.sheets };
     }
-    if (!['xlsx', 'xls', 'xlsm', 'ods', 'csv', 'txt', 'tsv'].includes(ext)) throw new Error('סוג קובץ לא נתמך. אפשר לטעון ‎.xlsx, ‎.xls, ‎.csv או ‎.json');
+    if (!['xlsx', 'xls', 'xlsm', 'ods', 'csv', 'txt', 'tsv'].includes(ext)) throw new Error('סוג קובץ לא נתמך. אפשר לטעון \u200e.xlsx, \u200e.xls, \u200e.csv או \u200e.json');
     if (!window.XLSX) throw new Error('רכיב הקריאה של Excel לא נטען. אפשר לטעון קובץ JSON.');
     let wb;
     const text = ['csv', 'txt', 'tsv'].includes(ext);
     try {
-      wb = text ? XLSX.read(decodeText(buf).replace(/^﻿/, ''), { type: 'string', raw: true }) : XLSX.read(buf, { type: 'array' });
+      wb = text ? XLSX.read(decodeText(buf).replace(/^\ufeff/, ''), { type: 'string', raw: true }) : XLSX.read(buf, { type: 'array' });
     } catch (e) {
       console.warn(e);
-      throw new Error(ext === 'xls' ? 'לא ניתן לקרוא את קובץ ה־Excel הישן (‎.xls). פתחו אותו ב־Excel ושמרו בשם כ־‎.xlsx או CSV.' : 'לא ניתן לקרוא את הקובץ. ודאו שהוא קובץ Excel או CSV תקין.');
+      throw new Error(ext === 'xls' ? 'לא ניתן לקרוא את קובץ ה־Excel הישן (\u200e.xls). פתחו אותו ב־Excel ושמרו בשם כ־\u200e.xlsx או CSV.' : 'לא ניתן לקרוא את הקובץ. ודאו שהוא קובץ Excel או CSV תקין.');
     }
     const sheets = wb.SheetNames.map((n) => ({ name: n, rows: rowsFromAoa(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '', blankrows: false })) }))
       .filter((s) => s.rows.length);
@@ -1029,7 +1074,7 @@
   }
   function downloadCsvTemplate() {
     const cell = (v) => { const s = String(v == null ? '' : v); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
-    const csv = '﻿' + templateAoa().map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
+    const csv = '\ufeff' + templateAoa().map((r) => r.map(cell).join(',')).join('\r\n') + '\r\n';
     U.download('תבנית-שאלות.csv', csv, 'text/csv;charset=utf-8');
     toast('תבנית ה־CSV הורדה', 'ok');
   }
@@ -1162,15 +1207,23 @@
     const tset = S().getSet(IM.setId) || sets[0];
     const nameIn = h('input.a-input', { type: 'text', value: IM.newName, dir: 'rtl', 'aria-label': 'שם האוסף החדש', placeholder: 'שם האוסף החדש' });
     nameIn.addEventListener('input', () => { IM.newName = nameIn.value; });
-    nameIn.addEventListener('click', (e) => e.stopPropagation());
-    const opt = (key, title, desc, ctl) => h('div.tgt' + (IM.target === key ? '.is-on' : ''), { role: 'radio', tabindex: '0', 'aria-checked': String(IM.target === key),
-      onclick: () => { if (IM.target !== key) { IM.target = key; paintWorkspace(true); } },
-      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); IM.target = key; paintWorkspace(true); } } },
-    h('span.tgt-radio'), h('div.tgt-txt', h('div.tgt-title', title), h('div.tgt-desc', desc)), ctl);
+    const pick = (key, refocus) => {
+      if (IM.target === key) return;
+      IM.target = key; paintWorkspace(true);
+      if (refocus) { const el = IM.host && IM.host.querySelector(`.tgt[data-key="${key}"]`); el && el.focus({ preventScroll: true }); }
+    };
+    const opt = (key, icon, title, desc) => h('div.tgt' + (IM.target === key ? '.is-on' : ''), { role: 'radio', tabindex: '0', 'aria-checked': String(IM.target === key), dataset: { key },
+      onclick: () => pick(key),
+      onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(key, true); } } },
+    h('span.tgt-radio'), h('div.tgt-txt', h('div.tgt-title', title), h('div.tgt-desc', desc)), h('span.tgt-ic', { html: I[icon] || '' }));
     const target = h('div.pv-target', { role: 'radiogroup', 'aria-label': 'לאן לטעון' },
-      opt('add', 'הוספה לאוסף', `השאלות יתווספו אחרי ${qCount(tset.questions.length)} הקיימות`, IM.target === 'add' ? setSel() : null),
-      opt('replace', 'החלפת השאלות באוסף', tset.questions.length ? `${qCount(tset.questions.length)} הקיימות יוחלפו` : 'האוסף ריק כרגע', IM.target === 'replace' ? setSel() : null),
-      opt('new', 'אוסף חדש', 'אוסף נפרד לתחרות או לרמה', IM.target === 'new' ? nameIn : null));
+      opt('add', 'plus', 'הוספה לאוסף', `אחרי ${qCount(tset.questions.length)} הקיימות`),
+      opt('replace', 'refresh', 'החלפת השאלות באוסף', tset.questions.length ? `${qCount(tset.questions.length)} הקיימות יוחלפו` : 'האוסף ריק כרגע'),
+      opt('new', 'layers', 'אוסף חדש', 'אוסף נפרד לתחרות או לרמה'));
+    // one destination row under the cards: which set, or the new set's name
+    const dest = h('label.pv-dest', h('span.pv-dest-lbl', ic(IM.target === 'new' ? 'edit' : 'layers'),
+      IM.target === 'new' ? 'שם האוסף החדש' : IM.target === 'replace' ? 'האוסף שבו יוחלפו השאלות' : 'האוסף שאליו יתווספו השאלות'),
+    IM.target === 'new' ? nameIn : setSel());
 
     // table
     const LIM = 300;
@@ -1178,8 +1231,8 @@
       const q = r.q, isBad = r.errs.length > 0;
       return h('tr' + (isBad ? '.is-bad' : ''),
         h('td.c-num', String(i + 1)),
-        h('td.c-st', h('span.st-dot' + (isBad ? '.bad' : '.ok'), { html: isBad ? I.x : I.check, title: isBad ? r.errs.join(' · ') : 'תקינה' })),
-        h('td.c-q', h('div.pv-q', q.q || '—'), isBad ? h('div.pv-err', r.errs.join(' · ')) : null),
+        h('td.c-st', h('span.st-dot' + (isBad ? '.bad' : '.ok'), { html: isBad ? I.x : I.check, title: isBad ? errTxt(r.errs) : 'תקינה' })),
+        h('td.c-q', h('div.pv-q', q.q || '—'), isBad ? h('div.pv-err', errTxt(r.errs)) : null),
         h('td.c-ok', q.correct || '—'),
         q.wrong.map((w) => h('td.c-bad', w || '—')),
         h('td.c-src', q.source || '—'));
@@ -1195,7 +1248,7 @@
       h('div.pv-foot-txt', bad ? h('span', ic('info'), bad === 1 ? 'שורה אחת עם שגיאה לא תיטען. אפשר לתקן אותה בקובץ ולטעון שוב.' : `${nf(bad)} שורות עם שגיאות לא ייטענו. אפשר לתקן אותן בקובץ ולטעון שוב.`) : h('span', ic('check'), 'כל השורות תקינות ומוכנות לטעינה.')),
       btn('ביטול', { kind: 'ghost', onclick: () => { IM.state = 'idle'; paintWorkspace(); } }), go);
 
-    return h('div.a-card.pv', head, sheetsBar, h('div.pv-section-lbl', 'לאן לטעון?'), target, table, more, foot);
+    return h('div.a-card.pv', head, sheetsBar, h('div.pv-section-lbl', 'לאן לטעון?'), target, dest, table, more, foot);
   }
 
   async function commitImport(list) {

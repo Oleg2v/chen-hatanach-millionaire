@@ -3,6 +3,8 @@
  * Every sound is a function (ctx, d, t0, opts) that schedules nodes into d = { out, fx } (dry bus + reverb send),
  * so it renders identically on a live AudioContext and on an OfflineAudioContext (CH.sound.render, for tests).
  * Master: dry+reverb → HPF 35 Hz → DynamicsCompressor → trim → soft ceiling (WaveShaper, max ≈ −1.2 dBFS) → mute.
+ * 60 fps: the room/noise and START are prepared in idle time before the first gesture; after unlock the bigger sounds
+ * are baked offline into stems, so play() costs well under 1 ms of main thread at the big moments.
  * Musical frame: the whole game lives in D major (pentatonic D E F♯ A B). "lock" hangs on A (the dominant), so
  * "correct" lands home on D and "wrong" sinks to D minor.
  */
@@ -64,12 +66,14 @@
     if (!x || !ctx.createStereoPanner) return dest;
     const p = ctx.createStereoPanner(); p.pan.value = x; p.connect(dest); return p;
   }
-  /** Sub-bus inside a voice: gain → pan → dry, plus a reverb send of `wet`. */
-  function layer(ctx, d, { gain = 1, wet = 0, pan = 0 } = {}) {
+  /** Sub-bus inside a voice: gain → (high-pass) → pan → dry, plus a reverb send of `wet`.
+   *  `hp` cleans bright layers: very fast mallet attacks otherwise leave a faint low "tock" on hall speakers. */
+  function layer(ctx, d, { gain = 1, wet = 0, pan = 0, hp = 0 } = {}) {
     const g = gainNode(ctx, gain);
-    const o = panner(ctx, d.out, pan);
-    g.connect(o);
-    if (wet > 0) { const s = gainNode(ctx, wet); g.connect(s); s.connect(d.fx); }
+    let src = g;
+    if (hp) { src = filter(ctx, 'highpass', hp, 0.6); g.connect(src); }
+    src.connect(panner(ctx, d.out, pan));
+    if (wet > 0) { const s = gainNode(ctx, wet); src.connect(s); s.connect(d.fx); }
     return g;
   }
 
@@ -242,7 +246,7 @@
       const k = count > 1 ? i / (count - 1) : 0;
       const at = t + (ordered ? k * span : rnd() * span);
       const idx = ordered ? Math.round(lo + (hi - lo) * k) : Math.floor(rr(Math.min(lo, hi), Math.max(lo, hi) + 1));
-      const L = layer(ctx, d, { wet, pan: rr(-0.6, 0.6) });
+      const L = layer(ctx, d, { wet, pan: rr(-0.6, 0.6), hp: 500 });
       const fade = 1 - 0.55 * ((at - t) / (span || 1));   // the shimmer thins out as it goes
       bell(ctx, L, at, mtof(penta(idx, base)), { amp: amp * fade * rr(0.6, 1), dur: dur * rr(0.75, 1.15), kind: 'glock', a: 0.0025 });
     }
@@ -250,7 +254,7 @@
 
   // ───────────────────────── the sounds ─────────────────────────
   function sClick(ctx, d, t) {
-    const L = layer(ctx, d, { wet: 0.05 });
+    const L = layer(ctx, d, { wet: 0.05, hp: 300 });
     tone(ctx, L, t, 1240, { f1: 1020, glide: 0.03, amp: 0.2, a: 0.0012, dur: 0.05 });   // woody body
     tone(ctx, L, t, 2790, { amp: 0.06, a: 0.0008, dur: 0.022 });                        // upper mode
     noise(ctx, L, t, 0.014, { amp: 0.07, type: 'bandpass', f: 4200, q: 0.9, a: 0.0006 }); // tick
@@ -258,7 +262,7 @@
 
   function sHover(ctx, d, t) {
     // a soft wind-chime: each hover picks a high pentatonic note, so sweeping across tiles sounds musical
-    const L = layer(ctx, d, { wet: 0.3, pan: rr(-0.3, 0.3) });
+    const L = layer(ctx, d, { wet: 0.3, pan: rr(-0.3, 0.3), hp: 600 });
     const f = mtof(penta(Math.floor(rr(0, 5)), 98));
     tone(ctx, L, t, f, { amp: 0.026, a: 0.0015, dur: 0.09 });
     tone(ctx, L, t, f * 2.76, { amp: 0.006, a: 0.001, dur: 0.03 });
@@ -284,7 +288,7 @@
   }
 
   function sStart(ctx, d, t) {
-    const B = layer(ctx, d, { wet: 0.38 });
+    const B = layer(ctx, d, { wet: 0.38, hp: 160 });
     [74, 78, 81, 86, 90].forEach((m, i) => {          // D5 F♯5 A5 D6 F♯6 — bell + harp, rising right → left
       const at = t + i * 0.065, last = i === 4, p = panner(ctx, B, 0.3 - i * 0.15);
       bell(ctx, p, at, mtof(m), { amp: last ? 0.11 : 0.085, dur: last ? 1.35 : 0.95, kind: 'chime', beat: 1.3 });
@@ -298,7 +302,7 @@
   }
 
   function sTile(ctx, d, t) {
-    const B = layer(ctx, d, { wet: 0.35 });
+    const B = layer(ctx, d, { wet: 0.35, hp: 250 });
     bell(ctx, B, t, mtof(81), { amp: 0.1, dur: 0.55, kind: 'chime', beat: 1.1 });          // A5
     bell(ctx, B, t + 0.085, mtof(86), { amp: 0.12, dur: 0.7, kind: 'chime', beat: 1.4 });  // D6
     pluck(ctx, B, t + 0.085, mtof(74), { amp: 0.1, dur: 0.6, bright: 0.5, t60: 0.8 });
@@ -307,7 +311,7 @@
   }
 
   function sQuestion(ctx, d, t) {
-    const H = layer(ctx, d, { wet: 0.32 });
+    const H = layer(ctx, d, { wet: 0.32, hp: 150 });
     const N = 11;                                     // harp/celesta glissando D4 → D6 (pentatonic)
     for (let i = 0; i < N; i++) {
       const k = i / (N - 1), at = t + i * 0.048, f = mtof(penta(i, 62)), p = panner(ctx, H, 0.4 - 0.8 * k);
@@ -319,7 +323,7 @@
   function sAnswer(ctx, d, t, o) {
     const i = Math.max(0, Math.min(7, o.index | 0));
     const f = mtof(penta(i + 5, 62));                 // D5, E5, F♯5, A5 …
-    const L = layer(ctx, d, { wet: 0.22, pan: i % 2 ? -0.22 : 0.22 });
+    const L = layer(ctx, d, { wet: 0.22, pan: i % 2 ? -0.22 : 0.22, hp: 200 });
     pluck(ctx, L, t, f, { amp: 0.16, dur: 0.5, bright: 0.24, t60: 0.55, a: 0.003 });
     tone(ctx, L, t, f, { amp: 0.06, a: 0.004, dur: 0.28 });
   }
@@ -362,7 +366,7 @@
   }
 
   function sCorrect(ctx, d, t) {
-    const B = layer(ctx, d, { wet: 0.32 });
+    const B = layer(ctx, d, { wet: 0.32, hp: 250 });
     [74, 78, 81, 86].forEach((m, i) => {              // D major bells, quick upward strum
       bell(ctx, B, t + i * 0.022, mtof(m), { amp: 0.1, dur: 1.5 - i * 0.1, kind: 'chime', beat: 1 + i * 0.4 });
       pluck(ctx, B, t + i * 0.022, mtof(m), { amp: 0.07, dur: 1, bright: 0.65, t60: 1.2 });
@@ -410,7 +414,7 @@
   function sClimb(ctx, d, t, o) {
     const step = Math.max(0, Math.min(9, o.step | 0));
     const f = mtof(penta(5 + step, 62));              // D5, then up the pentatonic ladder if opts.step is given
-    const L = layer(ctx, d, { wet: 0.2 });
+    const L = layer(ctx, d, { wet: 0.2, hp: 140 });
     const osc = ctx.createOscillator(); osc.type = 'triangle';
     osc.frequency.setValueAtTime(f * 0.5, t); osc.frequency.exponentialRampToValueAtTime(f, t + 0.09);
     const lfo = ctx.createOscillator(); lfo.frequency.value = 13;   // spring wobble, dying away
@@ -426,13 +430,13 @@
 
   function sScore(ctx, d, t, o) {
     const f = mtof(81 + Math.min(o.n | 0, 24) * 0.35); // rising slightly through a count-up run
-    const L = layer(ctx, d, { wet: 0.12 });
+    const L = layer(ctx, d, { wet: 0.12, hp: 400 });
     tone(ctx, L, t, f, { amp: 0.045, a: 0.001, dur: 0.035 });
     tone(ctx, L, t, f * 2.76, { amp: 0.012, a: 0.0008, dur: 0.015 });
   }
 
   function sPoints(ctx, d, t) {
-    const B = layer(ctx, d, { wet: 0.3 });
+    const B = layer(ctx, d, { wet: 0.3, hp: 400 });
     bell(ctx, B, t, mtof(86), { amp: 0.09, dur: 0.45, kind: 'glock' });              // D6
     bell(ctx, B, t + 0.055, mtof(93), { amp: 0.1, dur: 0.5, kind: 'glock', beat: 2 }); // A6
     tone(ctx, B, t + 0.055, mtof(98), { amp: 0.02, a: 0.001, dur: 0.3 });
@@ -440,13 +444,13 @@
   }
 
   function sBack(ctx, d, t) {
-    const L = layer(ctx, d, { wet: 0.18 });
-    tone(ctx, L, t, 900, { f1: 520, glide: 0.11, amp: 0.09, a: 0.003, dur: 0.16 });
-    tone(ctx, L, t, 1800, { type: 'triangle', f1: 1040, glide: 0.11, amp: 0.015, a: 0.003, dur: 0.1 });
+    const L = layer(ctx, d, { wet: 0.18, hp: 250 });
+    tone(ctx, L, t, mtof(81), { f1: mtof(74), glide: 0.1, amp: 0.09, a: 0.003, dur: 0.16 });       // A5 ↘ D5
+    tone(ctx, L, t, mtof(93), { type: 'triangle', f1: mtof(86), glide: 0.1, amp: 0.015, a: 0.003, dur: 0.1 });
   }
 
   function sReveal(ctx, d, t) {
-    const L = layer(ctx, d, { wet: 0.35 });
+    const L = layer(ctx, d, { wet: 0.35, hp: 300 });
     noise(ctx, L, t, 0.55, { amp: 0.045, type: 'bandpass', f: 1600, f1: 5200, q: 1.3, shape: swell(0.35) });
     bell(ctx, L, t + 0.14, mtof(93), { amp: 0.018, dur: 0.5, kind: 'celesta' });
   }
@@ -480,28 +484,30 @@
     sparkles(ctx, d, t + 1.3, 1.2, 14, { base: 86, lo: 0, hi: 12, amp: 0.03, dur: 0.5 });
   }
 
-  /** The mix. name → { dur (s, returned by play), db (fader), gap (ms, min re-trigger interval), bake (pre-render), fn } */
+  /** The mix. name → { dur (s, returned by play), db (fader), gap (ms, min re-trigger interval),
+   *  bake (pre-render; `uses` names the option that makes a call render live instead), fn } */
   const SOUNDS = {
     click: { dur: 0.07, db: -6, gap: 30, fn: sClick },
     hover: { dur: 0.09, db: 0, gap: 40, fn: sHover },
-    modal: { dur: 0.5, db: 1.5, gap: 60, fn: sModal },
-    whoosh: { dur: 0.52, db: 0, gap: 120, fn: sWhoosh },
+    modal: { dur: 0.5, db: 1.5, gap: 60, bake: 1, fn: sModal },
+    whoosh: { dur: 0.52, db: 0, gap: 120, bake: 1, fn: sWhoosh },
     start: { dur: 1.5, db: 0.5, gap: 300, bake: 1, fn: sStart },
     tile: { dur: 0.8, db: 1, gap: 120, bake: 1, fn: sTile },
     question: { dur: 0.95, db: 2.5, gap: 200, bake: 1, fn: sQuestion },
     answer: { dur: 0.5, db: 1.5, gap: 20, fn: sAnswer },
     lock: { dur: LOCK, db: -2, gap: 200, bake: 1, fn: sLock },
     correct: { dur: 1.6, db: 6, gap: 200, bake: 1, fn: sCorrect },
-    wrong: { dur: 1.2, db: -2.5, gap: 200, fn: sWrong },
+    wrong: { dur: 1.2, db: -2.5, gap: 200, bake: 1, fn: sWrong },
     fifty: { dur: 1.15, db: 8.5, gap: 200, bake: 1, fn: sFifty },
-    climb: { dur: 0.5, db: 3, gap: 60, fn: sClimb },
+    climb: { dur: 0.5, db: 3, gap: 60, bake: 1, uses: 'step', fn: sClimb },
     score: { dur: 0.04, db: -4.5, gap: 45, fn: sScore },
-    points: { dur: 0.5, db: 1.5, gap: 60, fn: sPoints },
+    points: { dur: 0.5, db: 1.5, gap: 60, bake: 1, fn: sPoints },
     victory: { dur: 3.3, db: 3.5, gap: 500, bake: 1, fn: sVictory },
     back: { dur: 0.17, db: 5, gap: 60, fn: sBack },
-    reveal: { dur: 0.55, db: 3, gap: 120, fn: sReveal },
+    reveal: { dur: 0.55, db: 3, gap: 120, bake: 1, fn: sReveal },
   };
   const fader = (def) => Math.pow(10, (def.db || 0) / 20);
+  const has = (name) => Object.prototype.hasOwnProperty.call(SOUNDS, name);
 
   // ───────────────────────── master chain ─────────────────────────
   // Chromium's compressor adds ≈ +4.9 dB automatic makeup below threshold and holds 0 dBFS input to ≈ −3 dBFS;
@@ -591,19 +597,22 @@
     try { return c.resume().then(() => c.state === 'running', () => false); } catch (e) { return Promise.resolve(false); }
   }
 
+  // Auto-unlock on the first real activation (touch screens activate on pointerup/touchend; Escape never activates).
+  // Creating the context outside an activation would only earn a console warning, so wait for one.
+  const GESTURES = ['pointerdown', 'pointerup', 'touchend', 'keydown'];
   function onGesture() {
+    if (navigator.userActivation && !navigator.userActivation.isActive) return;
     unlock().then((ok) => {
       if (!ok) return;
-      window.removeEventListener('pointerdown', onGesture, true);
-      window.removeEventListener('keydown', onGesture, true);
+      GESTURES.forEach((ev) => window.removeEventListener(ev, onGesture, true));
       bakeAll();
     });
   }
-  window.addEventListener('pointerdown', onGesture, true);
-  window.addEventListener('keydown', onGesture, true);
+  GESTURES.forEach((ev) => window.addEventListener(ev, onGesture, true));
 
   // ───────── idle prep: keep the main thread free at the big moments (60 fps) ─────────
-  const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 2500 }) : setTimeout(fn, 120));
+  // the background canvas animates constantly, so true idle time is rare — cap the wait at 600 ms
+  const idle = (fn) => (window.requestIdleCallback ? requestIdleCallback(fn, { timeout: 600 }) : setTimeout(fn, 120));
   /** Run tasks one per idle slot (a task may return a Promise). */
   function idleQueue(tasks) {
     const step = () => {
@@ -621,7 +630,7 @@
   function warm() {
     if (!AC || !OAC) return;
     const tasks = [];
-    for (const sr of [48000, 44100]) tasks.push(() => impulse(null, sr), () => noiseBuffer(null, sr), () => bakeInto('start', sr));
+    for (const sr of [48000, 44100]) tasks.push(() => impulse(null, sr), () => noiseBuffer(null, sr), () => (muted ? null : bakeInto('start', sr)));
     setTimeout(() => idleQueue(tasks), 2500);   // after the splash intro
   }
 
@@ -634,8 +643,10 @@
     if (bakeStarted || !ctx || !OAC || muted) return;
     bakeStarted = true;
     const sr = ctx.sampleRate;
-    const tasks = Object.keys(SOUNDS).filter((n) => SOUNDS[n].bake).map((n) => () => bakeInto(n, sr));
-    setTimeout(() => idleQueue(tasks), 1800);
+    // in the order the game will need them
+    const order = ['whoosh', 'tile', 'question', 'lock', 'correct', 'climb', 'points', 'reveal', 'wrong', 'fifty', 'victory', 'modal', 'start'];
+    const tasks = order.filter((n) => SOUNDS[n].bake).map((n) => () => bakeInto(n, sr));
+    setTimeout(() => idleQueue(tasks), 1500);
   }
   function bake(name, sr) {
     const def = SOUNDS[name], oc = new OAC(4, Math.ceil((def.dur + 0.3) * sr), sr);
@@ -669,7 +680,7 @@
 
   /** play(name, opts?) → { duration } — fire-and-forget; unknown names and muted/unavailable audio are no-ops. */
   function play(name, opts) {
-    const def = Object.prototype.hasOwnProperty.call(SOUNDS, name) ? SOUNDS[name] : null;
+    const def = has(name) ? SOUNDS[name] : null;
     if (!def) return { duration: 0 };
     const res = { duration: def.dur };
     if (muted || !hasGesture()) return res;
@@ -686,7 +697,8 @@
       const v = { out: gainNode(c, fader(def)), fx: gainNode(c, fader(def)), timer: 0 };
       v.out.connect(chain.out); v.fx.connect(chain.fx);
       voices.add(v);
-      const b = baked.get(name + '@' + c.sampleRate), t0 = c.currentTime + 0.02;
+      const b = def.uses && o[def.uses] != null ? null : baked.get(name + '@' + c.sampleRate);
+      const t0 = c.currentTime + 0.02;
       if (b) playBaked(c, v, b, t0); else def.fn(c, v, t0, o);
       v.timer = setTimeout(() => release(v), (def.dur + 1.2) * 1000);
     } catch (e) {
@@ -721,18 +733,25 @@
   }
 
   /** Offline render through the full master chain (tests/tools) → Promise<AudioBuffer|null>. Deterministic per seed.
+   *  `what` is a name, or a timeline [[name, atSeconds, opts?], …] mixed through one shared chain.
    *  A fresh compressor starts gain-reduced and needs its release time to settle, so the sound is scheduled after a
    *  0.6 s pre-roll that is trimmed off — the result matches what the live, idling chain plays. */
-  function render(name, opts, { sampleRate = 48000, tail = 2, reverb = true, seed = 1 } = {}) {
-    const def = SOUNDS[name];
-    if (!def || !OAC) return Promise.resolve(null);
-    const pre = Math.round(0.6 * sampleRate), len = Math.ceil((def.dur + tail) * sampleRate);
+  function render(what, opts, { sampleRate = 48000, tail = 2, reverb = true, seed = 1, preroll = 0.6 } = {}) {
+    const events = (Array.isArray(what) ? what : [[what, 0, opts]]).filter((e) => has(e[0]));
+    if (!events.length || !OAC) return Promise.resolve(null);
+    const end = Math.max(...events.map(([n, at]) => (at || 0) + SOUNDS[n].dur));
+    const pre = Math.round(preroll * sampleRate), len = Math.ceil((end + tail) * sampleRate);
     const oc = new OAC(2, pre + len, sampleRate);
     const ch = buildChain(oc, { reverb });
-    ch.out.gain.value = ch.fx.gain.value = fader(def);
     const prev = rnd;
     rnd = mulberry32(seed);
-    try { def.fn(oc, { out: ch.out, fx: ch.fx }, pre / sampleRate, Object.assign({}, opts || {})); } finally { rnd = prev; }
+    try {
+      for (const [n, at, o] of events) {
+        const v = { out: gainNode(oc, fader(SOUNDS[n])), fx: gainNode(oc, fader(SOUNDS[n])) };
+        v.out.connect(ch.out); v.fx.connect(ch.fx);
+        SOUNDS[n].fn(oc, v, pre / sampleRate + (at || 0), Object.assign({}, o || {}));
+      }
+    } finally { rnd = prev; }
     return oc.startRendering().then((full) => {
       const out = mkBuffer(2, len, sampleRate, oc);
       for (let c = 0; c < 2; c++) out.copyToChannel(full.getChannelData(c).subarray(pre), c);

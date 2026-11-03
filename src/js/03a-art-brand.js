@@ -105,7 +105,7 @@
     if (img) return img;
     const font = `font-family="FrankRuhl, 'Frank Ruhl Libre', 'NotoSerifHeb', serif" text-anchor="middle" direction="rtl"`;
     const y = 188;    // ornamental rule: two tapering hairlines and a tiny six-rhombus star (echo of the emblem)
-    const rule = `<path d="M17 ${y}L86 ${y - 0.85}V${y + 0.85}zM183 ${y}L114 ${y - 0.85}V${y + 0.85}z"/>` +
+    const rule = `<path d="M19 ${y}L86.5 ${y - 1.2}V${y + 1.2}zM181 ${y}L113.5 ${y - 1.2}V${y + 1.2}z"/>` +   // ≥2px at 170px wide
       `<path d="${hexRhombi(100, y, 9.2, 0.95).map(ptsD).join('')}"/>`;
     return `<svg class="art-wordmark" xmlns="${NS}" viewBox="0 0 200 272" role="img" aria-label="${BRAND_ALT}">` +
       `<g fill="${color}">` +
@@ -139,7 +139,8 @@
   const dome = (cx, by, rx, ry) => `M${N(cx - rx)} ${N(by)}A${N(rx)} ${N(ry)} 0 0 1 ${N(cx + rx)} ${N(by)}z`;
   const ell = (cx, cy, rx, ry = rx) => `M${N(cx - rx)} ${N(cy)}a${N(rx)} ${N(ry)} 0 1 0 ${N(2 * rx)} 0a${N(rx)} ${N(ry)} 0 1 0 ${N(-2 * rx)} 0z`;
   const poly = (pts) => 'M' + pts.map(([x, y]) => `${N(x)} ${N(y)}`).join('L') + 'z';
-  const el = (d, eo) => `<path${eo && d.indexOf('M', 1) > 0 ? ' fill-rule="evenodd"' : ''} d="${d}"/>`;
+  /** Path element. Plane groups default to evenodd (windows are holes); unions of overlapping shapes opt back to nonzero. */
+  const el = (d, eo) => `<path${!eo && d.indexOf('M', 1) > 0 ? ' fill-rule="nonzero"' : ''} d="${d}"/>`;
   const slit = (x, y, h = 9) => arch(x, y, 2.4, h);
   const finial = (cx, y, h) => rect(cx - 0.6, y - h, 1.2, h + 1) + ell(cx, y - h * 0.55, 1.6);
 
@@ -241,15 +242,20 @@
         crown += ell(X + Math.cos(t) * RX * 0.93, Y + Math.sin(t) * RY * 0.93, br, br * 0.85);
       }
     });
-    return `<path d="${trunk}"/><path d="${crown}"/>`;
+    return `<path d="${trunk}"/><path fill-rule="nonzero" d="${crown}"/>`;
   }
 
-  /** Assemble paper-cut planes: every plane is knocked out (with a thin halo) by all planes in front of it. */
+  /** Night sky right behind the skyline (bg-grad bottom). Receding planes sit on an opaque backing of this colour,
+   *  so they read as tinted paper — the rising book-cubes and the back layer pass behind them, not through them. */
+  const SKY_BACK = '#040d2b';
+
+  /** Assemble paper-cut planes: every plane is knocked out (with a thin halo) by all planes in front of it.
+   *  planes: [elements, opacity, fog?] — fog [y0, y1, opacity at y1]: white fades toward the plane's base (valley mist). */
   function assemble(defs, planes, halo = 3.6) {
     let s = `<defs>${defs}<linearGradient id="@f" x2="${SW}" gradientUnits="userSpaceOnUse">` +
       '<stop offset="0" stop-color="#000"/><stop offset=".05" stop-color="#fff"/><stop offset=".95" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>';
-    planes.forEach(([els], i) => { s += `<g id="@p${i}">${els.join('')}</g>`; });
-    planes.forEach((_, i) => {
+    planes.forEach(([els], i) => { s += `<g id="@p${i}" fill-rule="evenodd">${els.join('')}</g>`; });
+    planes.forEach(([, op, fog], i) => {
       s += `<mask id="@m${i}" maskUnits="userSpaceOnUse" x="0" y="0" width="${SW}" height="${SH}"><rect width="${SW}" height="${SH}" fill="url(#@f)"/>`;
       if (i < planes.length - 1) {
         s += `<g fill="#000" stroke="#000" color="#000" stroke-width="${halo}" stroke-linejoin="round">`;
@@ -257,10 +263,22 @@
         s += '</g>';
       }
       s += '</mask>';
+      if (op < 1 || fog) {                          // tone mask: opacity, optionally falling off toward the base
+        const [y0, y1, ob] = fog || [0, SH, op];
+        s += `<linearGradient id="@t${i}" gradientUnits="userSpaceOnUse" x2="0" y1="${y0}" y2="${y1}"><stop offset="0" stop-color="#fff" stop-opacity="${op}"/>` +
+          `<stop offset="1" stop-color="#fff" stop-opacity="${ob}"/></linearGradient>` +
+          `<mask id="@v${i}" maskUnits="userSpaceOnUse" x="0" y="0" width="${SW}" height="${SH}"><rect width="${SW}" height="${SH}" fill="url(#@t${i})"/></mask>`;
+      }
     });
-    s += '</defs><g fill="#fff" color="#fff">';
-    planes.forEach(([, op], i) => { s += `<g mask="url(#@m${i})"${op < 1 ? ` opacity="${op}"` : ''}><use href="#@p${i}"/></g>`; });
-    return s + '</g>';
+    s += '</defs>';
+    planes.forEach(([, op, fog], i) => {
+      s += `<g mask="url(#@m${i})">`;
+      s += op < 1 || fog
+        ? `<use href="#@p${i}" fill="${SKY_BACK}" color="${SKY_BACK}"/><g mask="url(#@v${i})" fill="#fff" color="#fff"><use href="#@p${i}"/></g>`
+        : `<g fill="#fff" color="#fff"><use href="#@p${i}"/></g>`;
+      s += '</g>';
+    });
+    return s;
   }
 
   // ---- landmarks ----
@@ -488,7 +506,7 @@
     [[812, 'd'], [836, 'b'], [2836, 'e'], [2860, 'c'], [3116, 'b'], [3370, 'c'], [3510, 'b'], [210, 'c'], [520, 'b'], [3740, 'c']]
       .forEach(([x, k]) => fore.push(use('c' + k, x, gFore.y(x) + 3)));
 
-    return assemble(defs.join(''), [[far, 0.46], [near, 0.72], [land, 1], [wall, 1], [fore, 1]]);
+    return assemble(defs.join(''), [[far, 0.5, [196, 300, 0.12]], [near, 0.74, [178, 262, 0.4]], [land, 1], [wall, 1], [fore, 1]]);
   }
 
   function buildBack() {
@@ -511,7 +529,7 @@
     near.push(el(cren(980, 1004, hills.y(992) - 58, FLOOR, { w: 6, gap: 4, h: 4, cap: 1.5 })));
     near.push(el(rect(2210, hills.y(2216) - 58, 14, 60) + rect(2208, hills.y(2216) - 61, 18, 3) + dome(2217, hills.y(2216) - 61, 7, 7)));
     for (let x = 90; x < SW - 60; x += 40 + rnd() * 120) near.push(use(rnd() < 0.5 ? 'cs' : 'ct', x, hills.y(x) + 2));
-    return assemble(defs.join(''), [[far, 0.55], [near, 1]], 3);
+    return assemble(defs.join(''), [[far, 0.55, [110, 250, 0.1]], [near, 1, [180, 300, 0.45]]], 3);
   }
 
   const skyCache = {};
@@ -581,10 +599,10 @@
       g += `<path fill="#fff6d6" fill-opacity=".55" d="${pg([0.8, a, z + 0.7], [a - 0.4, a, z + 0.7], [a - 0.4, a, z + 1.1], [0.8, a, z + 1.1])}"/>`;
     });
     // ribbon bookmark hanging out of the page block, past the lower board (swallowtail end)
-    const ry = a * 0.66, rw = 3.6, rz = t * 0.6, dr = 1.6, re = -9;
+    const ry = a * 0.66, rw = 4.4, rz = t * 0.58, dr = 0.9, re = -4.8;
     g += `<path fill="#3a2a10" fill-opacity=".18" d="${pg([a - o, ry - rw / 2 - 0.8, rz - 0.8], [a - o, ry + rw / 2 + 0.6, rz - 0.8], [a - o, ry + rw / 2 + 0.6, b], [a - o, ry - rw / 2 - 0.8, b])}"/>`;
     g += `<path fill="${shade(color, 0.28)}" d="${pg([a - o, ry - rw / 2, rz], [a - o, ry + rw / 2, rz], [a + 0.2, ry + rw / 2, b], [a + 0.2, ry + rw / 2 + dr, re],
-      [a + 0.2, ry + dr, re + 2.6], [a + 0.2, ry - rw / 2 + dr, re], [a + 0.2, ry - rw / 2, b])}"/>`;
+      [a + 0.2, ry + dr, re + 2], [a + 0.2, ry - rw / 2 + dr, re], [a + 0.2, ry - rw / 2, b])}"/>`;
     g += `<path fill="#fff" fill-opacity=".26" d="${pg([a - o, ry - rw / 2, rz], [a - o, ry - rw / 2 + 0.8, rz], [a + 0.2, ry - rw / 2 + 0.8, b], [a + 0.2, ry - rw / 2 + 0.8 + dr, re + 0.8], [a + 0.2, ry - rw / 2 + dr, re], [a + 0.2, ry - rw / 2, b])}"/>`;
 
     // top face: cover with blind-tooled frame and gold ornament / letter
@@ -596,20 +614,20 @@
     g += `<path fill="none" stroke="#fff" stroke-opacity=".5" stroke-width=".8" stroke-linecap="round" d="M${pt(0.5, a, t)}L${pt(a, a, t)}L${pt(a, 0.5, t)}"/>`;
     g += `<path fill="none" stroke="#fff" stroke-opacity=".28" stroke-width=".6" d="M${pt(0, 0, t)}L${pt(0, a, t)}"/>`;
 
+    // Cover art lies flat on the cover, turned 45° in its plane so it reads upright (foreshortened) on screen.
     const [cx, cy] = iso(a / 2, a / 2, t);
-    const onCover = `translate(${N(cx)} ${N(cy)}) matrix(${C} .5 ${-C} .5 0 0)`;
+    const onCover = `translate(${N(cx)} ${N(cy)}) matrix(1.2247 0 0 .7071 0 0)`;
+    let scale = 1;                                                            // glyph units → cover units
+    const art = (d, tr = '') =>                                               // soft drop shadow + gold foil
+      `<path transform="translate(.45 .55) ${onCover}${tr}" fill="${shade(color, 0.5)}" fill-opacity=".5" d="${d}"/>` +
+      `<path transform="${onCover}${tr}" fill="${gold}"${tr ? ` stroke="#8f5c12" stroke-opacity=".55" stroke-width="${N(0.45 / scale * 10) / 10}"` : ''} d="${d}"/>`;
     const glyph = letter && GLYPHS[String(letter)[0]];
     if (glyph) {
       const [box, d] = glyph.split('|'), [x0, y0, x1, y1] = box.split(' ').map(Number);
-      const sc = Math.min((a * 0.5) / 120, (a * 0.62) / Math.max(x1 - x0, y1 - y0));
-      const tr = `${onCover} scale(${N(sc * 1000) / 1000}) translate(${N(-(x0 + x1) / 2)} ${N(-(y0 + y1) / 2)})`;
-      g += `<path transform="translate(-.5 .6) ${tr}" fill="${shade(color, 0.45)}" fill-opacity=".45" d="${d}"/>`;
-      g += `<path transform="${tr}" fill="${gold}" stroke="#8f5c12" stroke-opacity=".5" stroke-width="${N(0.5 / sc * 10) / 10}" d="${d}"/>`;
+      scale = Math.min(0.205, 42 / (x1 - x0 + y1 - y0));                     // bbox must fit the 45°-turned frame
+      g += art(d, ` scale(${N(scale * 1000) / 1000}) translate(${N(-(x0 + x1) / 2)} ${N(-(y0 + y1) / 2)})`);
     } else if (ornament) {
-      // small gold hexagram of six rhombi (echoes the emblem)
-      const st = hexRhombi(0, 0, 7.4, 0.6).map(ptsD).join('');
-      g += `<path transform="translate(-.5 .6) ${onCover}" fill="${shade(color, 0.45)}" fill-opacity=".45" d="${st}"/>`;
-      g += `<path transform="${onCover}" fill="${gold}" d="${st}"/>`;
+      g += art(hexRhombi(0, 0, 8.4, 0.7).map(ptsD).join(''));                 // small gold six-rhombus star (emblem echo)
     }
 
     return `<svg xmlns="${NS}" viewBox="0 0 100 100" width="${size}" height="${size}">` +

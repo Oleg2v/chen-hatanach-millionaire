@@ -1,0 +1,16 @@
+{
+  // Static demo site, published as a Worker with static assets (no Pages).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "chen-hatanach",
+  "account_id": "be9447e281c6e9198712ade2d0241029",
+  "compatibility_date": "2025-10-01",
+  "assets": {
+    "directory": "./site",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash"
+  },
+  "routes": [{ "pattern": "chen-hatanach.kikkey.com", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false,
+  "keep_vars": true
+}

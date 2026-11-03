@@ -329,3 +329,19 @@ body.in-admin #dock { display: none; }
 @media (prefers-reduced-motion: reduce) {
   .rays { animation: none; }
 }
+
+/* Phone in portrait: suggest rotating (the game is a 16:9 projector experience) */
+#rotate-hint { display: none; }
+@media (orientation: portrait) and (max-width: 900px) {
+  body:not(.rh-dismissed):not(.in-admin) #rotate-hint {
+    display: grid; place-items: center; position: fixed; inset: 0; z-index: 900; padding: 24px;
+    background: radial-gradient(ellipse at 50% 30%, rgba(18, 121, 207, 0.92), rgba(3, 11, 38, 0.97) 75%);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+}
+.rh-card { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; max-width: 320px; }
+.rh-card b { font: 700 22px/1.35 var(--f-ui); color: #fff; }
+.rh-card span { font: 400 16px/1.4 var(--f-ui); color: rgba(225, 240, 255, 0.75); }
+.rh-ic { width: 72px; height: 72px; color: var(--gold-1); animation: rh-rot 2.6s var(--ease-in-out) infinite; }
+.rh-card .btn { --h: 52px; font-size: 20px; padding: 0 28px; margin-top: 10px; }
+@keyframes rh-rot { 0%, 30% { transform: rotate(0); } 60%, 100% { transform: rotate(-90deg); } }
