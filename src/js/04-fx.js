@@ -850,7 +850,7 @@
     };
     const L1 = lattice(6, 7), L2 = lattice(16, 18), L3 = lattice(44, 46);
     for (let y = 0; y < h; y++) {
-      for (let x = 0; x < w; x++) n[y * w + x] = 0.52 * sample(L1, x, y) + 0.28 * sample(L2, x, y) + 0.15 * sample(L3, x, y) + 0.05 * Math.random();
+      for (let x = 0; x < w; x++) n[y * w + x] = 0.52 * sample(L1, x, y) + 0.28 * sample(L2, x, y) + 0.17 * sample(L3, x, y) + 0.02 * Math.random();
     }
     const sorted = Float32Array.from(n).sort(), N = n.length;
     // ember rim: a thin hot contour just inside the crumbling front (cream core, gold halo), drawn additively on the overlay
@@ -868,7 +868,12 @@
     }
     g.putImageData(img, 0, 0);
     rc.getContext('2d').putImageData(rimg, 0, 0);
-    edgeTex = { url: cv.toDataURL('image/png'), w, h, n, rim: rc };
+    // bake a soft bloom under the crisp contour (one drawImage per frame at runtime)
+    const rim = canvasOf(w, h), rg2 = rim.getContext('2d');
+    if ('filter' in rg2) { rg2.filter = 'blur(2.5px)'; rg2.globalAlpha = 0.9; rg2.drawImage(rc, 0, 0); rg2.filter = 'none'; rg2.globalAlpha = 1; }
+    rg2.globalCompositeOperation = 'lighter';
+    rg2.drawImage(rc, 0, 0);
+    edgeTex = { url: cv.toDataURL('image/png'), w, h, n, rim };
     return edgeTex;
   }
 
@@ -893,7 +898,7 @@
     let anim = null;
     if (pfx) {
       st[pfx + 'Image'] = `linear-gradient(#000, #000), url("${tex.url}")`;
-      st[pfx + 'Size'] = `${span}px ${H + 2 * M}px, ${Sz}px ${H + 2 * M}px`;
+      st[pfx + 'Size'] = `${span + 2}px ${H + 2 * M}px, ${Sz}px ${H + 2 * M}px`;   // +2px overlap: no hairline seam at the join
       st[pfx + 'Repeat'] = 'no-repeat';
       st[pfx + 'Origin'] = 'border-box';
       st[pfx + 'Clip'] = 'no-clip';                     // keeps the box-shadow until the edge reaches it
