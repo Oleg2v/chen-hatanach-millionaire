@@ -8,7 +8,10 @@
   const COLOR_NAMES = { red: 0, green: 1, pink: 2, teal: 3, turquoise: 3, orange: 4, blue: 5 };
   const BRAND_ALT = 'חן התנ״ך';
 
-  const N = (v) => Math.round(v * 10) / 10;                 // compact coordinates (0.1 precision)
+  let prec = 10;                                            // coordinate precision (10 → 0.1 units)
+  const N = (v) => Math.round(v * prec) / prec;
+  /** Run fn with coarser (integer) coordinates — for small background silhouettes, keeps the SVGs light. */
+  const coarse = (fn) => { const p = prec; prec = 1; try { return fn(); } finally { prec = p; } };
   let seq = 0;
   const uid = (p) => p + (++seq).toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -100,9 +103,10 @@
   }
 
   // ======================================================================
-  // Skyline — Jerusalem in white, layered paper-cut planes
+  // Skyline — Jerusalem from the west, white paper-cut planes
   // ======================================================================
-  const SW = 3840, SH = 320, FLOOR = 304;   // FLOOR: hidden base line for buildings
+  // viewBox 3840×320. At 16:9 roughly x 690…3150 is on screen; the ends only show on ultrawide (and fade out).
+  const SW = 3840, SH = 320, FLOOR = SH + 2;   // FLOOR: hidden base line for buildings
 
   function rng(seed) {
     return function () {
@@ -125,6 +129,7 @@
   const poly = (pts) => 'M' + pts.map(([x, y]) => `${N(x)} ${N(y)}`).join('L') + 'z';
   const el = (d, eo) => `<path${eo ? ' fill-rule="evenodd"' : ''} d="${d}"/>`;
   const slit = (x, y, h = 9) => arch(x, y, 2.4, h);
+  const finial = (cx, y, h) => rect(cx - 0.6, y - h, 1.2, h + 1) + ell(cx, y - h * 0.55, 1.6);
 
   /** Open Catmull–Rom spline through pts → "C…" segments (caller emits the M). */
   function spline(pts, tension = 1) {
@@ -138,7 +143,7 @@
     return d;
   }
 
-  /** Smooth ground line y(x) through control points (cubic Hermite, finite-difference slopes). */
+  /** Smooth ground line y(x) through control points (cubic Hermite); d = filled area down to the bottom edge. */
   function contour(cp) {
     const m = cp.map((p, i) => {
       const a = cp[Math.max(0, i - 1)], b = cp[Math.min(cp.length - 1, i + 1)];
@@ -151,19 +156,32 @@
       const t2 = t * t, t3 = t2 * t;
       return (2 * t3 - 3 * t2 + 1) * y0 + (t3 - 2 * t2 + t) * h * m[i] + (-2 * t3 + 3 * t2) * y1 + (t3 - t2) * h * m[i + 1];
     };
-    // Exact Bézier form of the same Hermite curve, closed down to the bottom edge.
-    let d = `M${cp[0][0]} ${SH}V${N(cp[0][1])}`;
+    let d = `M${cp[0][0]} ${FLOOR}V${N(cp[0][1])}`;
     for (let i = 0; i < cp.length - 1; i++) {
       const [x0, y0] = cp[i], [x1, y1] = cp[i + 1], h = x1 - x0;
       d += `C${N(x0 + h / 3)} ${N(y0 + (m[i] * h) / 3)} ${N(x1 - h / 3)} ${N(y1 - (m[i + 1] * h) / 3)} ${N(x1)} ${N(y1)}`;
     }
-    d += `V${SH}z`;
-    return { y, d };
+    return { y, d: d + `V${FLOOR}z` };
   }
 
-  /** Block with a crenellated top (Jerusalem merlons: rectangles with small pyramidal caps). */
+  /** Thin broken lines following a contour (terrace walls) — returned as holes for an evenodd path. */
+  function terraces(g, x0, x1, offs, rnd) {
+    let d = '';
+    offs.forEach((off) => {
+      let x = x0 + rnd() * 30;
+      while (x < x1) {
+        const len = 40 + rnd() * 110, xe = Math.min(x1, x + len), pts = [];
+        for (let k = 0; k <= 3; k++) { const sx = x + ((xe - x) * k) / 3; pts.push([sx, g.y(sx) + off]); }
+        d += 'M' + pts.map(([a, b]) => `${N(a)} ${N(b)}`).join('L') + pts.reverse().map(([a, b]) => `L${N(a)} ${N(b + 1.1)}`).join('') + 'z';
+        x = xe + 8 + rnd() * 26;
+      }
+    });
+    return d;
+  }
+
+  /** Crenellated block: Jerusalem merlons (rectangles with small pyramidal caps). */
   function cren(x0, x1, y, bottom = FLOOR, m = {}) {
-    const mw = m.w || 9, gap = m.gap || 6.5, mh = m.h || 6.5, cap = m.cap == null ? 3 : m.cap;
+    const mw = m.w || 8, gap = m.gap || 5.5, mh = m.h || 6, cap = m.cap == null ? 2.6 : m.cap;
     const n = Math.max(1, Math.round((x1 - x0 + gap) / (mw + gap)));
     const w = (x1 - x0 - (n - 1) * gap) / n;
     let d = `M${N(x0)} ${N(bottom)}V${N(y - mh)}`;
@@ -175,48 +193,49 @@
   }
 
   // ---- reusable silhouettes (defined once, placed with translate-only <use>, so halos stay uniform) ----
-  function cypressD(h, { lean = 0, asym = 1, slim = 1 } = {}) {
-    const w = h * 0.2 * slim, tw = w * 0.07;
-    const prof = [[0.035, 0.4], [0.12, 0.49], [0.25, 0.5], [0.41, 0.45], [0.57, 0.36], [0.72, 0.26], [0.85, 0.15], [0.94, 0.06]];
+  /** Italian cypress: slim flame, widest a third of the way up, soft pointed tip. */
+  function cypressD(h, { lean = 0, slim = 1 } = {}) {
+    const w = h * 0.17 * slim, tw = w * 0.08;
+    const prof = [[0.035, 0.3], [0.09, 0.43], [0.2, 0.5], [0.34, 0.485], [0.5, 0.42], [0.65, 0.33], [0.79, 0.22], [0.9, 0.12], [0.97, 0.045]];
     const lx = (t) => lean * w * t * t;
-    const right = prof.map(([t, hw]) => [lx(t) + hw * w * (2 - asym) / 2, -t * h]);
-    const left = prof.slice().reverse().map(([t, hw]) => [lx(t) - (hw * w * asym) / 2, -t * h]);
+    const right = prof.map(([t, hw]) => [lx(t) + hw * w, -t * h]);
+    const left = prof.slice().reverse().map(([t, hw]) => [lx(t) - hw * w, -t * h]);
     const tip = [lx(1), -h];
-    return `M${N(tw)} 2V${N(-0.02 * h)}L${N(right[0][0])} ${N(right[0][1])}` + spline([...right, tip]) +
-      spline([tip, ...left]) + `L${N(-tw)} ${N(-0.02 * h)}V2z`;
+    return `M${N(tw)} 4V${N(-0.02 * h)}L${N(right[0][0])} ${N(right[0][1])}` + spline([...right, tip]) +
+      spline([tip, ...left]) + `L${N(-tw)} ${N(-0.02 * h)}V4z`;
   }
 
+  /** Olive tree: short gnarled trunk forking into limbs under a broad, cloud-like crown with sky gaps below. */
   function oliveD(W, H, seed) {
-    const r = rng(seed);
-    // Gnarled trunk splitting into two limbs
-    const T = [[-0.06, 0.05], [-0.04, -0.12], [-0.065, -0.25], [-0.03, -0.37], [-0.15, -0.52], [-0.13, -0.545], [-0.005, -0.44],
-      [0.025, -0.46], [0.15, -0.56], [0.165, -0.535], [0.055, -0.37], [0.04, -0.24], [0.07, -0.11], [0.075, 0.05]];
+    const r = rng(seed), j = (v) => (r() - 0.5) * v;
+    const T = [[-0.085, 0.06], [-0.06, -0.06], [-0.078, -0.16], [-0.04, -0.27], [-0.15, -0.39], [-0.185, -0.43], [-0.16, -0.455], [-0.025, -0.355],
+      [-0.005, -0.5], [0.028, -0.5], [0.03, -0.345], [0.14, -0.44], [0.165, -0.415], [0.052, -0.27], [0.06, -0.15], [0.092, -0.05], [0.115, 0.06]];
     const trunk = poly(T.map(([x, y]) => [x * W, y * H]));
-    // Airy crown: clumps on an ellipse envelope, scalloped with small bumps
     let crown = '';
-    const clumps = [[-0.31, -0.6, 0.17], [-0.13, -0.76, 0.2], [0.1, -0.79, 0.19], [0.31, -0.64, 0.17], [-0.02, -0.6, 0.22], [-0.43, -0.5, 0.085], [0.44, -0.52, 0.08]];
+    // [cx (×W), cy (×H), rx (×W)]; ry = rx·0.8
+    const clumps = [[-0.29, -0.6, 0.17], [-0.11, -0.79, 0.19], [0.11, -0.8, 0.18], [0.3, -0.63, 0.17], [0.0, -0.62, 0.2],
+      [-0.4, -0.48, 0.1], [0.41, -0.5, 0.095], [-0.19, -0.5, 0.12], [0.2, -0.49, 0.12]];
     clumps.forEach(([cx, cy, rr], i) => {
-      const jx = (r() - 0.5) * 0.04, jy = (r() - 0.5) * 0.04;
-      const X = (cx + jx) * W, Y = (cy + jy) * H, RX = rr * W, RY = rr * W * 0.62;
+      const X = (cx + j(0.04)) * W, Y = (cy + j(0.05)) * H, RX = rr * W * (0.94 + r() * 0.12), RY = RX * 0.8;
       crown += ell(X, Y, RX, RY);
-      if (i < 5) for (let a = -165; a <= -15; a += 30 + r() * 12) {
-        const t = (a * Math.PI) / 180, br = W * (0.035 + r() * 0.025);
-        crown += ell(X + Math.cos(t) * RX * 0.92, Y + Math.sin(t) * RY * 0.92, br, br * 0.85);
+      if (i < 4 || i === 5 || i === 6) for (let a = -175; a <= -5; a += 30 + r() * 18) {   // leafy scalloped edge
+        const t = (a * Math.PI) / 180, br = W * (0.032 + r() * 0.02);
+        crown += ell(X + Math.cos(t) * RX * 0.93, Y + Math.sin(t) * RY * 0.93, br, br * 0.85);
       }
     });
     return `<path d="${trunk}"/><path d="${crown}"/>`;
   }
 
   /** Assemble paper-cut planes: every plane is knocked out (with a thin halo) by all planes in front of it. */
-  function assemble(defs, planes, halo = 5) {
+  function assemble(defs, planes, halo = 3.6) {
     let s = `<defs>${defs}<linearGradient id="@f" x2="${SW}" gradientUnits="userSpaceOnUse">` +
-      '<stop offset="0" stop-color="#000"/><stop offset=".045" stop-color="#fff"/><stop offset=".955" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>';
+      '<stop offset="0" stop-color="#000"/><stop offset=".05" stop-color="#fff"/><stop offset=".95" stop-color="#fff"/><stop offset="1" stop-color="#000"/></linearGradient>';
     planes.forEach(([els], i) => { s += `<g id="@p${i}">${els.join('')}</g>`; });
     planes.forEach((_, i) => {
       s += `<mask id="@m${i}" maskUnits="userSpaceOnUse" x="0" y="0" width="${SW}" height="${SH}"><rect width="${SW}" height="${SH}" fill="url(#@f)"/>`;
       if (i < planes.length - 1) {
         s += `<g fill="#000" stroke="#000" color="#000" stroke-width="${halo}" stroke-linejoin="round">`;
-        for (let j = i + 1; j < planes.length; j++) s += `<use href="#@p${j}"/>`;
+        for (let k = i + 1; k < planes.length; k++) s += `<use href="#@p${k}"/>`;
         s += '</g>';
       }
       s += '</mask>';
@@ -227,63 +246,73 @@
   }
 
   // ---- landmarks ----
-  /** Hurva-like synagogue: cubic hall, corner turrets, tall arcaded drum, great dome, lantern. */
+  /** Hurva-like synagogue: cubic hall with tall arched windows, corner turrets, arcaded drum, great dome, lantern. */
   function hurva(cx) {
-    const o = [], bw = 220, bx = cx - bw / 2, by = 150;
-    o.push(el(rect(bx, by, bw, FLOOR - by) + arch(cx - 10, 163, 20, 70) + arch(cx - 64, 170, 13, 60) + arch(cx + 51, 170, 13, 60) +
-      rect(bx + 4, by + 5, bw - 8, 1.4), true));
-    o.push(el(rect(bx - 5, by - 5, bw + 10, 5.5)));                          // cornice
-    [bx - 2, bx + bw - 24].forEach((tx) => {                                // corner turrets
-      o.push(el(rect(tx, by - 30, 26, 30) + arch(tx + 10, by - 24, 6, 14), true));
-      o.push(el(rect(tx - 2.5, by - 34, 31, 4.5) + dome(tx + 13, by - 34, 11, 10) + rect(tx + 12.3, by - 50, 1.4, 7)));
+    const o = [], bw = 232, bx = cx - bw / 2, by = 186;
+    o.push(el(rect(bx, by, bw, FLOOR - by) + arch(cx - 13, by + 15, 26, 220) + arch(cx - 72, by + 22, 17, 220) + arch(cx + 55, by + 22, 17, 220) +
+      rect(bx + 5, by + 6, bw - 10, 1.2), true));
+    o.push(el(rect(bx - 6, by - 6, bw + 12, 6.6)));                                   // cornice
+    [bx - 3, bx + bw - 25].forEach((tx) => {                                         // corner turrets
+      o.push(el(rect(tx, by - 33, 28, 28) + arch(tx + 10.5, by - 26, 7, 14), true));
+      o.push(el(rect(tx - 3, by - 37, 34, 4.6) + dome(tx + 14, by - 37, 12, 11) + finial(tx + 14, by - 47, 7)));
     });
-    const dw = 128, dx = cx - dw / 2, dt = 98;                              // drum with arcade
-    let d = rect(dx, dt, dw, by - dt + 1);
-    for (let i = 0; i < 6; i++) d += arch(dx + 9 + i * 19.6, dt + 13, 10, 29);
-    d += rect(dx + 3, by - 7, dw - 6, 1.3);
+    const dw = 134, dx = cx - dw / 2, dt = 120;                                      // drum
+    o.push(el(rect(dx - 9, by - 13, dw + 18, 8) + rect(dx - 5, by - 16, dw + 10, 4)));  // plinth
+    let d = rect(dx, dt, dw, by - dt - 14);
+    const nw = 6, sp = dw / nw;
+    for (let i = 0; i < nw; i++) d += arch(dx + sp * i + sp / 2 - 5.4, dt + 12, 10.8, by - dt - 36);
+    d += rect(dx + 3, by - 22, dw - 6, 1.1);
     o.push(el(d, true));
-    o.push(el(rect(dx - 5, dt - 5, dw + 10, 5.5) + rect(dx - 1, dt - 8, dw + 2, 3.5)));
-    o.push(el(dome(cx, dt - 8, 63, 60)));                                   // great dome
-    o.push(el(rect(cx - 7.5, dt - 80, 15, 13) + rect(cx - 9, dt - 81.5, 18, 2.5) + dome(cx, dt - 81.5, 8, 7.5) +
-      rect(cx - 0.7, dt - 97, 1.4, 9) + ell(cx, dt - 91, 1.8)));            // lantern + finial
+    o.push(el(rect(dx - 6, dt - 6, dw + 12, 6.6) + rect(dx - 1, dt - 10, dw + 2, 4.5)));  // drum cornice
+    o.push(el(dome(cx, dt - 10, 63, 55)));                                           // great dome
+    const lt = dt - 65;                                                               // lantern
+    o.push(el(rect(cx - 8, lt - 12, 16, 13) + arch(cx - 5.2, lt - 9.5, 3.6, 8) + arch(cx + 1.6, lt - 9.5, 3.6, 8), true));
+    o.push(el(rect(cx - 10.5, lt - 14.5, 21, 3) + dome(cx, lt - 14.5, 8.5, 7) + finial(cx, lt - 21, 10)));
     return o;
   }
 
-  /** Tower of David: citadel corner tower carrying the slender minaret with two balcony rings. */
+  /** Tower of David: crenellated bastion carrying the slender minaret with two corbelled balconies. */
   function davidTower(cx, top) {
     const o = [];
-    o.push(el(cren(cx - 34, cx + 34, top, FLOOR, { w: 8.5, gap: 6, h: 6, cap: 2.5 }) + slit(cx - 18, top + 14) + slit(cx + 15.6, top + 14) +
-      rect(cx - 32, top + 4, 64, 1.3), true));
-    o.push(el(poly([[cx - 21, top], [cx - 21, top - 9], [cx - 16, top - 14], [cx + 16, top - 14], [cx + 21, top - 9], [cx + 21, top]])));
-    let d = rect(cx - 14, top - 70, 28, 57) + arch(cx - 2.6, top - 44, 5.2, 15) + arch(cx - 2.2, top - 62, 4.4, 10) + rect(cx - 14, top - 30, 28, 1.3);
-    o.push(el(d, true));                                                     // lower shaft
-    const ring = (y, w0, w1) => {                                            // corbel + slab + pierced parapet
-      let p = poly([[cx - w0 / 2, y + 9], [cx - w1 / 2, y + 1], [cx + w1 / 2, y + 1], [cx + w0 / 2, y + 9]]) + rect(cx - w1 / 2 - 2.5, y - 2.5, w1 + 5, 3.5);
+    o.push(el(cren(cx - 37, cx + 37, top, FLOOR, { w: 8, gap: 5.6 }) + slit(cx - 20, top + 15) + slit(cx + 17.6, top + 15) +
+      rect(cx - 35, top + 4.5, 70, 1.2) + slit(cx - 1.2, top + 34, 11), true));
+    o.push(el(poly([[cx - 20, top], [cx - 20, top - 8], [cx - 15, top - 13], [cx + 15, top - 13], [cx + 20, top - 8], [cx + 20, top]])));
+    o.push(el(rect(cx - 13, top - 70, 26, 58) + arch(cx - 2.6, top - 44, 5.2, 15) + arch(cx - 2.2, top - 62, 4.4, 10) + rect(cx - 13, top - 30, 26, 1.2), true));
+    const ring = (y, w0, w1) => {                                                    // corbels + slab + pierced parapet
+      const p = poly([[cx - w0 / 2, y + 9], [cx - w1 / 2, y + 1], [cx + w1 / 2, y + 1], [cx + w0 / 2, y + 9]]) + rect(cx - w1 / 2 - 2.5, y - 2.5, w1 + 5, 3.5);
       let q = rect(cx - w1 / 2, y - 10.5, w1, 8.2);
       const n = Math.floor((w1 - 4) / 5.6);
       for (let i = 0; i < n; i++) q += rect(cx - (n * 5.6) / 2 + i * 5.6 + 1.6, y - 8.6, 2.4, 4.6);
       o.push(el(p), el(q, true));
     };
-    ring(top - 79, 28, 42);
-    o.push(el(rect(cx - 10, top - 120, 20, 32) + arch(cx - 2.2, top - 112, 4.4, 11), true));   // upper shaft
-    ring(top - 125, 20, 32);
-    o.push(el(rect(cx - 8, top - 147, 16, 12) + arch(cx - 5.6, top - 144.5, 3.6, 7.5) + arch(cx + 2, top - 144.5, 3.6, 7.5), true));
-    o.push(el(rect(cx - 9.6, top - 150, 19.2, 3.2) + dome(cx, top - 150, 8.4, 8.5) + rect(cx - 0.7, top - 172, 1.4, 15) + ell(cx, top - 162, 2.1) + ell(cx, top - 169, 1.3)));
+    ring(top - 79, 26, 40);
+    o.push(el(rect(cx - 9.5, top - 120, 19, 32) + arch(cx - 2.2, top - 112, 4.4, 11), true));
+    ring(top - 125, 19, 31);
+    o.push(el(rect(cx - 7.5, top - 147, 15, 12) + arch(cx - 5.4, top - 144.5, 3.6, 7.5) + arch(cx + 1.8, top - 144.5, 3.6, 7.5), true));
+    o.push(el(rect(cx - 9.4, top - 150, 18.8, 3.2) + dome(cx, top - 150, 8.2, 8.5) + rect(cx - 0.65, top - 172, 1.3, 15) + ell(cx, top - 162, 2) + ell(cx, top - 168.5, 1.3)));
     return o;
   }
 
-  /** Jaffa-Gate-like gatehouse: crenellated block, pointed arch in a recessed frame, machicolation. */
+  /** Jaffa-Gate-like gatehouse: crenellated block, pointed arch in a recessed frame, machicolation, inscription. */
   function gate(x0, x1, top, ground) {
-    const cx = (x0 + x1) / 2, aw = 36, at = ground - 58;
-    let d = cren(x0, x1, top, FLOOR, { w: 9, gap: 6.5 }) + rect(x0 + 3, top + 5, x1 - x0 - 6, 1.3);
-    d += rect(cx - 27, at - 9, 54, ground - at + 9) + rect(cx - 25.4, at - 7.4, 50.8, ground - at + 9);  // thin frame line
-    d += pointed(cx - aw / 2, at, aw, ground - at + 4, 0.78);
-    d += rect(cx - 12, top + 13, 24, 1.2) + rect(cx - 12, top + 22, 24, 1.2);  // inscription panel lines
-    d += slit(x0 + 14, top + 20) + slit(x1 - 16.4, top + 20);
+    const cx = (x0 + x1) / 2, aw = 34, at = ground - 56;
+    let d = cren(x0, x1, top, FLOOR, { w: 8.4, gap: 5.8 }) + rect(x0 + 3, top + 5, x1 - x0 - 6, 1.2);
+    d += rect(cx - 26, at - 9, 52, FLOOR - at + 9) + rect(cx - 24.6, at - 7.6, 49.2, FLOOR - at + 9);   // thin frame line
+    d += pointed(cx - aw / 2, at, aw, FLOOR - at, 0.78);
+    d += rect(cx - 12, top + 14, 24, 1.1) + rect(cx - 12, top + 21, 24, 1.1);          // inscription panel
+    d += slit(x0 + 13, top + 20) + slit(x1 - 15.4, top + 20);
     const o = [el(d, true)];
-    // machicolation box on corbels above the arch
-    o.push(el(rect(cx - 11, at - 30, 22, 13) + poly([[cx - 11, at - 17], [cx - 7, at - 12], [cx - 4, at - 17]]) + poly([[cx - 2, at - 17], [cx, at - 12], [cx + 2, at - 17]]) +
-      poly([[cx + 4, at - 17], [cx + 7, at - 12], [cx + 11, at - 17]])));
+    o.push(el(rect(cx - 11, at - 30, 22, 12) + poly([[cx - 11, at - 18], [cx - 8, at - 13], [cx - 5, at - 18]]) + poly([[cx - 2, at - 18], [cx, at - 13], [cx + 2, at - 18]]) +
+      poly([[cx + 5, at - 18], [cx + 8, at - 13], [cx + 11, at - 18]])));
+    return o;
+  }
+
+  /** Citadel keep (Phasael-like): massive crenellated tower with a corner turret. */
+  function keep(x0, x1, top) {
+    const o = [];
+    o.push(el(cren(x0, x1, top, FLOOR, { w: 8.6, gap: 6, h: 6.5 }) + rect(x0 + 2, top + 5, x1 - x0 - 4, 1.2) + arch(x0 + (x1 - x0) * 0.6, top + 20, 8, 16) +
+      slit(x0 + 18, top + 22) + slit(x1 - 20, top + 22) + slit(x0 + 18, top + 52) + slit(x1 - 20, top + 52) + rect(x0 + 2, top + 44, x1 - x0 - 4, 1.1), true));
+    o.push(el(cren(x0 + 6, x0 + 34, top - 18, top + 1, { w: 6.4, gap: 4.4, h: 5, cap: 2 }) + slit(x0 + 18.8, top - 12, 7), true));
     return o;
   }
 
@@ -297,15 +326,21 @@
     const nw = Math.max(2, Math.floor(dw / 13));
     for (let i = 0; i < nw; i++) d += arch(cx - dw / 2 + (dw / nw) * (i + 0.5) - 2.6, baseTop - drumH + 5, 5.2, drumH - 9);
     o.push(el(d, true), el(rect(cx - dw / 2 - 2.5, baseTop - drumH - 2.5, dw + 5, 3)));
-    o.push(el(dome(cx, baseTop - drumH - 2.5, rx, ry) + (opts.finial ? rect(cx - 0.6, baseTop - drumH - ry - 12, 1.2, 11) + ell(cx, baseTop - drumH - ry - 7, 1.7) : '')));
+    o.push(el(dome(cx, baseTop - drumH - 2.5, rx, ry) + (opts.finial ? finial(cx, baseTop - drumH - ry - 2.5, 9) : '')));
     return o;
+  }
+
+  /** Plain square stone tower with a crenellated top (no religious symbols). */
+  function stoneTower(cx, top, w, ground) {
+    return [el(cren(cx - w / 2, cx + w / 2, top, ground, { w: 6, gap: 4.4, h: 5, cap: 2 }) + rect(cx - w / 2 + 2, top + 4, w - 4, 1.1) +
+      arch(cx - 3, top + 12, 6, 12) + slit(cx - 1.2, top + 34), true)];
   }
 
   /** Montefiore-style windmill: tapered stone tower, domed cap, lattice sails (stroked). */
   function windmill(cx, ground) {
-    const o = [], top = ground - 66;
-    let d = poly([[cx - 20, ground + 6], [cx - 14, top], [cx + 14, top], [cx + 20, ground + 6]]);
-    d += arch(cx - 3, top + 16, 6, 11) + arch(cx - 2.6, top + 38, 5.2, 9) + rect(cx - 15, top + 6, 30, 1.3);
+    const o = [], top = ground - 70;
+    let d = poly([[cx - 20, ground + 8], [cx - 14, top], [cx + 14, top], [cx + 20, ground + 8]]);
+    d += arch(cx - 3, top + 16, 6, 11) + arch(cx - 2.6, top + 38, 5.2, 9) + rect(cx - 15, top + 6, 30, 1.2);
     o.push(el(d, true));
     o.push(el(`M${N(cx - 17)} ${N(top + 1)}Q${N(cx - 16)} ${N(top - 15)} ${N(cx)} ${N(top - 18)}Q${N(cx + 16)} ${N(top - 15)} ${N(cx + 17)} ${N(top + 1)}z` + ell(cx, top - 19, 2)));
     const hx = cx, hy = top - 5;
@@ -323,9 +358,9 @@
     return o;
   }
 
-  /** Row of Old-City stone houses: flat roofs, little domes, roof rooms, arched windows. */
+  /** Row of stone houses: flat roofs, little domes, roof rooms, arched windows (or tiled gables). */
   function houses(out, x0, x1, rnd, env, opts = {}) {
-    const clip = opts.clip || 0;  // windows only above this y (hidden part behind the wall)
+    const clip = opts.clip || 0;  // windows only above this y (lower part hidden behind the wall)
     let x = x0;
     while (x < x1 - 12) {
       const w = Math.min(x1 - x, (opts.wMin || 22) + rnd() * (opts.wVar || 44));
@@ -342,7 +377,9 @@
       }
       out.push(el(d, true));
       const q = rnd();
-      if (q < 0.42 && w > 26) {
+      if (opts.gables && q < opts.gables) {
+        out.push(el(poly([[x - 2, top + 0.5], [x + w / 2, top - w * 0.3], [x + w + 2, top + 0.5]])));
+      } else if (q < 0.42 && w > 26) {
         const rx = w * (0.24 + rnd() * 0.1), cxd = x + w * (0.36 + rnd() * 0.28);
         out.push(el(rect(cxd - rx, top - 2.5, rx * 2, 3) + dome(cxd, top - 2.5, rx, rx * (0.55 + rnd() * 0.25))));
       } else if (q < 0.64) {
@@ -357,79 +394,83 @@
 
   function buildFront() {
     const rnd = rng(1948);
-    const city = [], mid = [], land = [], wall = [], fore = [];
+    const far = [], near = [], land = [], wall = [], fore = [];
     const defs = [];
-    // tree silhouettes
-    const CY = { a: [62, {}], b: [82, { lean: 0.15, asym: 1.06 }], c: [102, { lean: -0.1 }], d: [124, { slim: 0.9, lean: 0.12, asym: 0.95 }], e: [146, { slim: 0.86, lean: -0.08 }] };
+    const CY = { a: [56, {}], b: [76, { lean: 0.12 }], c: [96, { lean: -0.08 }], d: [116, { slim: 0.94, lean: 0.1 }], e: [138, { slim: 0.9, lean: -0.06 }] };
     Object.entries(CY).forEach(([k, [h, o]]) => defs.push(`<path id="@c${k}" d="${cypressD(h, o)}"/>`));
-    defs.push(`<g id="@oa">${oliveD(60, 44, 3)}</g>`, `<g id="@ob">${oliveD(80, 54, 11)}</g>`, `<g id="@oc">${oliveD(100, 64, 23)}</g>`);
+    coarse(() => defs.push(`<g id="@oa">${oliveD(62, 46, 3)}</g>`, `<g id="@ob">${oliveD(84, 62, 11)}</g>`, `<g id="@oc">${oliveD(106, 78, 23)}</g>`));
     const use = (k, x, y) => `<use href="#@${k}" x="${N(x)}" y="${N(y)}"/>`;
 
     // ---- ground lines ----
-    const gCity = contour([[0, 282], [300, 266], [620, 256], [900, 250], [1920, 246], [2900, 252], [3240, 258], [3560, 268], [3840, 284]]);
-    const gWall = contour([[0, 294], [240, 286], [520, 276], [760, 268], [900, 268], [2800, 268], [3000, 262], [3200, 270], [3460, 280], [3700, 288], [3840, 296]]);
-    const gFore = contour([[0, 306], [240, 300], [500, 294], [720, 290], [880, 293], [1200, 295], [1600, 294], [1920, 296], [2300, 294], [2720, 292], [2900, 288], [3140, 290], [3380, 296], [3640, 300], [3840, 306]]);
+    const gCity = contour([[0, 290], [320, 276], [640, 266], [900, 262], [1920, 258], [2900, 262], [3220, 268], [3540, 278], [3840, 292]]);
+    const gWall = contour([[0, 300], [260, 292], [560, 284], [820, 280], [1920, 282], [2840, 280], [3040, 276], [3260, 284], [3540, 293], [3840, 302]]);
+    const gFore = contour([[0, 314], [220, 304], [460, 296], [700, 294], [880, 302], [1200, 306], [1920, 308], [2620, 306], [2830, 300], [3080, 302],
+      [3320, 297], [3580, 304], [3840, 314]]);
 
-    // ---- city plane (behind the walls) ----
-    city.push(el(gCity.d));
-    const env = (x) => 196 - 34 * Math.exp(-(((x - 1920) / 640) ** 2));
-    houses(city, 900, 2790, rnd, env, { clip: 204 });
-    houses(city, 330, 860, rnd, (x) => gCity.y(x) - 22, { wMin: 18, wVar: 26, jitter: 10 });
-    houses(city, 2860, 3330, rnd, (x) => gCity.y(x) - 22, { wMin: 18, wVar: 26, jitter: 10 });
-    [[1130, 'c'], [1470, 'd'], [1502, 'b'], [2150, 'd'], [2172, 'b'], [2490, 'c'], [2680, 'd'], [2700, 'b'], [980, 'b']].forEach(([x, k]) => city.push(use('c' + k, x, 200)));
-    [[120, 'ob'], [200, 'oa'], [470, 'oc'], [3420, 'ob'], [3560, 'oc'], [3700, 'oa']].forEach(([x, k]) => city.push(use(k, x, gCity.y(x) + 2)));
-    [[60, 'b'], [540, 'c'], [3490, 'd'], [3770, 'b']].forEach(([x, k]) => city.push(use('c' + k, x, gCity.y(x) + 2)));
+    // ---- far plane: the Old City behind the walls ----
+    const env = (x) => 228 - 30 * Math.exp(-(((x - 1920) / 700) ** 2));
+    coarse(() => {
+      houses(far, 880, 2800, rnd, env, { clip: 242 });
+      houses(far, 330, 870, rnd, (x) => gCity.y(x) - 24, { wMin: 18, wVar: 26, jitter: 10 });
+      houses(far, 2820, 3340, rnd, (x) => gCity.y(x) - 24, { wMin: 18, wVar: 26, jitter: 10 });
+    });
+    far.push(...domed(1150, 214, 40, 24, 10, 14, 13, {}), ...stoneTower(2700, 176, 24, FLOOR), ...stoneTower(1010, 196, 22, FLOOR));
+    [[1240, 'b'], [1580, 'd'], [1604, 'b'], [2130, 'c'], [2420, 'd'], [2442, 'b'], [2610, 'c'], [960, 'b']].forEach(([x, k]) => far.push(use('c' + k, x, 236)));
+    [[110, 'ob'], [230, 'oa'], [480, 'oc'], [3420, 'ob'], [3580, 'oc'], [3720, 'oa']].forEach(([x, k]) => far.push(use(k, x, gCity.y(x) + 2)));
+    [[60, 'b'], [560, 'c'], [3500, 'd'], [3780, 'b']].forEach(([x, k]) => far.push(use('c' + k, x, gCity.y(x) + 2)));
 
-    // ---- mid plane: secondary domes ----
-    mid.push(...domed(1712, 178, 66, 38, 15, 21, 19, { finial: true }));
-    mid.push(...domed(2262, 168, 110, 52, 20, 30, 27, { windows: 3, finial: true }));
-    mid.push(use('cd', 1790, 206), use('ce', 2060, 206), use('cc', 2078, 206), use('cc', 1648, 206));
+    // ---- near plane: secondary domes and taller trees inside the walls ----
+    near.push(...domed(1722, 206, 64, 36, 15, 20, 18, { finial: true }));
+    near.push(...domed(2252, 196, 112, 54, 20, 30, 27, { windows: 3, finial: true }));
+    near.push(use('ce', 1800, 244), use('cd', 1650, 244), use('cc', 2068, 244), use('ce', 2088, 244), use('cd', 2364, 244), use('cb', 2540, 244));
 
     // ---- landmark plane: Hurva at the centre, windmill outside the walls ----
     land.push(...hurva(1920));
-    land.push(...windmill(3000, gWall.y(3000) - 6));
+    land.push(...windmill(3012, gWall.y(3012) - 10));
 
-    // ---- wall plane: walls, towers, Jaffa Gate, citadel with the Tower of David ----
-    wall.push(el(gWall.d));
-    const W = (x0, x1, top, m) => wall.push(el(cren(x0, x1, top, FLOOR, m) + rect(x0 + 1, top + 4.5, x1 - x0 - 2, 1.2), true));
-    const tower = (x0, x1, top) => wall.push(el(cren(x0, x1, top, FLOOR, { w: 8, gap: 6 }) + rect(x0 + 2, top + 4.5, x1 - x0 - 4, 1.2) +
-      slit((x0 + x1) / 2 - 1.2, top + 18) + slit((x0 + x1) / 2 - 1.2, top + 40), true));
-    tower(866, 928, 182);
-    W(928, 1080, 210);
-    tower(1080, 1118, 192);
-    W(1118, 1206, 208);
-    wall.push(...gate(1206, 1316, 176, gFore.y(1261)));
-    W(1316, 1354, 198);
-    wall.push(...davidTower(1388, 168));
-    W(1422, 1548, 190, { w: 8.5, gap: 6 });
-    wall.push(el(cren(1548, 1646, 148, FLOOR, { w: 9, gap: 6.5, h: 7 }) + rect(1550, 152.5, 94, 1.3) + arch(1606, 168, 8, 16) + slit(1572, 170) + slit(1626, 170) +
-      slit(1572, 200) + slit(1626, 200), true));
-    wall.push(el(cren(1556, 1584, 132, 150, { w: 7, gap: 5, h: 5, cap: 2 }) + slit(1568.8, 138, 7), true));    // turret
-    W(1646, 1766, 204);
-    tower(1766, 1802, 188);
-    W(1802, 2084, 206);
-    tower(2084, 2124, 186);
-    W(2124, 2402, 206);
-    tower(2402, 2444, 188);
-    W(2444, 2586, 208);
-    tower(2586, 2622, 192);
-    W(2622, 2742, 210);
-    tower(2742, 2806, 182);
-    // Mishkenot-style long house with crenellated parapet, at the foot of the windmill
-    let mk = cren(2862, 3110, 256, FLOOR, { w: 6, gap: 5, h: 4.5, cap: 1.6 });
-    for (let x = 2872; x < 3100; x += 13) mk += arch(x, 263, 5, 11);
+    // ---- wall plane: Old City walls, towers, Jaffa Gate, citadel with the Tower of David ----
+    const W = (x0, x1, top) => {
+      let d = cren(x0, x1, top) + rect(x0 + 1, top + 4.5, x1 - x0 - 2, 1.1);
+      const n = Math.floor((x1 - x0) / 44);
+      for (let i = 0; i < n; i++) d += slit(x0 + ((x1 - x0) / n) * (i + 0.5) - 1.2, top + 14, 7);
+      wall.push(el(d, true));
+    };
+    const tower = (x0, x1, top) => wall.push(el(cren(x0, x1, top, FLOOR, { w: 7.6, gap: 5.4 }) + rect(x0 + 2, top + 4.5, x1 - x0 - 4, 1.1) +
+      slit((x0 + x1) / 2 - 1.2, top + 17) + slit((x0 + x1) / 2 - 1.2, top + 38), true));
+    tower(872, 936, 222);
+    W(937, 1074, 246);
+    tower(1075, 1115, 230);
+    W(1116, 1196, 244);
+    wall.push(...gate(1197, 1311, 212, gWall.y(1254)));
+    W(1312, 1344, 238);
+    wall.push(...keep(1345, 1437, 198));
+    W(1438, 1462, 228);
+    wall.push(...davidTower(1500, 214));
+    W(1538, 1640, 240);
+    tower(1641, 1677, 228);
+    W(1678, 2086, 246);
+    tower(2087, 2127, 230);
+    W(2128, 2396, 246);
+    tower(2397, 2439, 230);
+    W(2440, 2600, 248);
+    tower(2601, 2637, 234);
+    W(2638, 2742, 250);
+    tower(2743, 2809, 226);
+    // Mishkenot-style long house with a crenellated parapet, at the foot of the windmill
+    let mk = cren(2872, 3112, gWall.y(2990) - 34, FLOOR, { w: 5.6, gap: 4.4, h: 4.2, cap: 1.5 });
+    for (let x = 2886; x < 3100; x += 21.4) mk += arch(x, gWall.y(2990) - 26, 6, 13);
     wall.push(el(mk, true));
-    // a few outlying domed houses
-    houses(wall, 560, 690, rnd, (x) => gWall.y(x) - 24, { wMin: 22, wVar: 20, jitter: 8 });
-    houses(wall, 3240, 3360, rnd, (x) => gWall.y(x) - 24, { wMin: 22, wVar: 20, jitter: 8 });
+    houses(wall, 3130, 3330, rnd, (x) => gWall.y(x) - 26, { wMin: 24, wVar: 22, jitter: 8, gables: 0.4 });
+    houses(wall, 600, 760, rnd, (x) => gWall.y(x) - 24, { wMin: 22, wVar: 20, jitter: 8 });
 
-    // ---- foreground: hill, olive groves, cypresses ----
-    fore.push(el(gFore.d));
-    [[300, 'ob'], [420, 'oa'], [612, 'oc'], [742, 'ob'], [3170, 'oc'], [3290, 'ob'], [3420, 'oa'], [3640, 'ob'], [120, 'oa'], [3790, 'oa']].forEach(([x, k]) => fore.push(use(k, x, gFore.y(x) + 3)));
-    [[812, 'd'], [834, 'b'], [1010, 'c'], [2520, 'c'], [2542, 'a'], [2830, 'e'], [2852, 'c'], [3112, 'b'], [3360, 'c'], [3500, 'b'], [210, 'c'], [520, 'b'], [3740, 'c']]
+    // ---- foreground: hill with terraces, olive groves, cypresses ----
+    fore.push(el(gFore.d + coarse(() => terraces(gFore, 40, 840, [9, 17], rnd) + terraces(gFore, 2880, 3800, [9, 17], rnd)), true));
+    [[300, 'ob'], [420, 'oa'], [610, 'oc'], [742, 'ob'], [3170, 'oc'], [3300, 'ob'], [3430, 'oa'], [3650, 'ob'], [120, 'oa'], [3790, 'oa']]
+      .forEach(([x, k]) => fore.push(use(k, x, gFore.y(x) + 3)));
+    [[812, 'd'], [836, 'b'], [2836, 'e'], [2860, 'c'], [3116, 'b'], [3370, 'c'], [3510, 'b'], [210, 'c'], [520, 'b'], [3740, 'c']]
       .forEach(([x, k]) => fore.push(use('c' + k, x, gFore.y(x) + 3)));
 
-    return assemble(defs.join(''), [[city, 0.5], [mid, 0.78], [land, 1], [wall, 1], [fore, 1]]);
+    return assemble(defs.join(''), [[far, 0.46], [near, 0.72], [land, 1], [wall, 1], [fore, 1]]);
   }
 
   function buildBack() {
@@ -437,22 +478,20 @@
     const far = [], near = [];
     const defs = [`<path id="@cs" d="${cypressD(40, {})}"/>`, `<path id="@ct" d="${cypressD(54, { lean: 0.1 })}"/>`];
     const use = (k, x, y) => `<use href="#@${k}" x="${N(x)}" y="${N(y)}"/>`;
-    const ridge = contour([[0, 214], [260, 196], [560, 184], [820, 192], [1100, 176], [1400, 168], [1700, 178], [2000, 170], [2300, 150], [2560, 158],
-      [2820, 172], [3100, 166], [3380, 184], [3640, 196], [3840, 210]]);
+    // far ridge: Mount Scopus / Mount of Olives line, highest right of centre
+    const ridge = contour([[0, 214], [260, 198], [560, 186], [820, 192], [1100, 178], [1400, 170], [1700, 178], [2000, 168], [2300, 150], [2560, 156],
+      [2820, 170], [3100, 166], [3380, 184], [3640, 198], [3840, 210]]);
     far.push(el(ridge.d));
     const hills = contour([[0, 246], [300, 232], [620, 222], [900, 228], [1200, 218], [1560, 222], [1920, 214], [2300, 220], [2700, 216], [3000, 224],
       [3300, 218], [3600, 232], [3840, 244]]);
     near.push(el(hills.d));
-    // distant villages along the hills
-    [[180, 420], [700, 980], [1240, 1520], [1700, 2140], [2360, 2640], [2900, 3180], [3420, 3640]].forEach(([a, b]) =>
-      houses(near, a, b, rnd, (x) => hills.y(x) - 14, { wMin: 12, wVar: 18, jitter: 10 }));
-    // distant towers and domes on the ridge
+    coarse(() => [[180, 420], [700, 980], [1240, 1520], [1700, 2140], [2360, 2640], [2900, 3180], [3420, 3640]].forEach(([a, b]) =>
+      houses(near, a, b, rnd, (x) => hills.y(x) - 14, { wMin: 12, wVar: 18, jitter: 10 })));
     near.push(...domed(1330, hills.y(1330) - 26, 40, 22, 10, 12, 11, {}));
     near.push(...domed(2890, hills.y(2890) - 22, 34, 20, 8, 11, 10, {}));
     near.push(el(cren(2600, 2626, hills.y(2613) - 70, FLOOR, { w: 6, gap: 4, h: 4, cap: 1.5 }) + slit(2611.8, hills.y(2613) - 58, 8)));
     near.push(el(cren(980, 1004, hills.y(992) - 58, FLOOR, { w: 6, gap: 4, h: 4, cap: 1.5 })));
     near.push(el(rect(2210, hills.y(2216) - 58, 14, 60) + rect(2208, hills.y(2216) - 61, 18, 3) + dome(2217, hills.y(2216) - 61, 7, 7)));
-    // cypress rows
     for (let x = 90; x < SW - 60; x += 40 + rnd() * 120) near.push(use(rnd() < 0.5 ? 'cs' : 'ct', x, hills.y(x) + 2));
     return assemble(defs.join(''), [[far, 0.55], [near, 1]], 3);
   }

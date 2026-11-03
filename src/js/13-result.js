@@ -25,7 +25,7 @@
       h('header.scr-head', h('div.ph-brand', h('div.emb', { html: CH.emblemSvg({ shaded: true }) }), h('div', h('div.t1.gold-text', CH.store.displayTitle())))),
       ladderBox,
       h('div.rs-main',
-        h('div.rs-who', { style: { '--c': CH.participantColor(log.n) } }, h('i'), `משתתף ${log.n}`),
+        h('div.rs-who', { style: { '--c': CH.participantColor(log.n) } }, h('i'), `כוורת ${log.n}`),
         h('h1.rs-head.gold-text', headline(log)),
         h('div.rs-wreath', wreathHost, h('div.rs-score', val, h('div.unit', 'נקודות'))),
         h('div.rs-stats', h('span', h('b', String(log.correct)), ` מתוך ${log.total} תשובות נכונות`), marks)),

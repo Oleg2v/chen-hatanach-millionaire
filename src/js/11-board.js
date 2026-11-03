@@ -35,9 +35,9 @@
     const resetBtn = h('button.btn.btn-glass.btn-sm', { type: 'button', onclick: resetRound, html: CH.ui.icons.refresh + '<span>סבב חדש</span>' });
     el.append(h('header.scr-head',
       h('div.emb', { html: CH.emblemSvg({ shaded: true }) }),
-      h('div.titles', h('h1.gold-text', CH.store.displayTitle()), h('div.sub', 'בחרו משתתף כדי להתחיל')),
+      h('div.titles', h('h1.gold-text', CH.store.displayTitle()), h('div.sub', 'לוח הכוורות · בחרו כוורת כדי להתחיל')),
       h('div.spacer'),
-      h('div.head-chip', { html: `${CH.ui.icons.users.replace('<svg', '<svg style="width:30px;height:30px"')}<span>שיחקו <b>${played}</b> מתוך <b>${n}</b></span>` }),
+      h('div.head-chip', { html: `${CH.ui.icons.users.replace('<svg', '<svg style="width:30px;height:30px"')}<span>שוחקו <b>${played}</b> מתוך <b>${n}</b> כוורות</span>` }),
       resetBtn));
 
     // grid
@@ -51,8 +51,8 @@
     for (let i = 1; i <= n; i++) {
       const res = CH.store.resultOf(i);
       const resume = cur && cur.n === i;
-      const t = h('button.tile', { type: 'button', 'data-n': i, 'aria-label': `משתתף ${i}` + (res ? `, שיחק, ${fmtScore(res.score)} נקודות` : ''), style: { '--c': colorOf(i) } },
-        h('i.gem'), L.th > 120 ? h('span.lbl', 'משתתף') : null, h('span.num', String(i)),
+      const t = h('button.tile', { type: 'button', 'data-n': i, 'aria-label': `כוורת ${i}` + (res ? `, שוחקה, ${fmtScore(res.score)} נקודות` : ''), style: { '--c': colorOf(i) } },
+        h('i.gem'), L.th > 120 ? h('span.lbl', 'כוורת') : null, h('span.num', String(i)),
         h('span.score', h('b', res ? fmtScore(res.score) : ''), h('span', 'נקודות'), res ? h('em', { html: `<bdi>${res.correct}/${res.total}</bdi>` + CH.ui.icons.check }) : null),
         h('span.lock', { html: CH.ui.icons.lock }),
         h('span.badge', 'בהמשך…'));
@@ -78,7 +78,7 @@
     const rows = CH.store.leaderboard();
     const box = h('aside.leader.glass', h('h2', h('span.ic', { html: CH.ui.icons.crown }), h('span.gold-text', 'טבלת המובילים')));
     if (!rows.length) {
-      box.append(h('div.lb-empty', h('div.ic', { html: CH.ui.icons.star }), 'עדיין אין תוצאות.', h('br'), 'בחרו משתתף ראשון!'));
+      box.append(h('div.lb-empty', h('div.ic', { html: CH.ui.icons.star }), 'עדיין אין תוצאות.', h('br'), 'בחרו כוורת ראשונה!'));
       return box;
     }
     const MAX = 8;
@@ -88,7 +88,7 @@
       const li = h('li.lb-row' + (i === 0 ? '.first' : ''), { style: { '--c': colorOf(r.n) }, 'data-n': r.n },
         i === 0 ? h('span.crown', { html: CH.ui.icons.crown }) : null,
         h('span.rk', String(rank || '·')),
-        h('span.nm', h('bdi', `משתתף ${r.n}`), h('small', { html: `<bdi>${r.correct}/${r.total}</bdi>` + CH.ui.icons.check })),
+        h('span.nm', h('bdi', `כוורת ${r.n}`), h('small', { html: `<bdi>${r.correct}/${r.total}</bdi>` + CH.ui.icons.check })),
         h('span.pt', fmtScore(r.score)));
       if (r.n === flashN) li.classList.add('is-new');
       ol.append(li);
@@ -152,14 +152,14 @@
 
   async function offerUnlock(n) {
     const res = CH.store.resultOf(n);
-    const ok = await CH.ui.confirm(`משתתף ${n} כבר שיחק`, `התוצאה שלו: <b>${fmtScore(res.score)}</b> נקודות (${res.correct} מתוך ${res.total} נכונות).<br>לפתוח את המשבצת מחדש ולמחוק את התוצאה?`,
+    const ok = await CH.ui.confirm(`כוורת ${n} כבר שוחקה`, `התוצאה: <b>${fmtScore(res.score)}</b> נקודות (${res.correct} מתוך ${res.total} נכונות).<br>הכוורת נעולה. לפתוח אותה מחדש ולמחוק את התוצאה?`,
       { ok: 'פתיחה מחדש', cancel: 'השאר נעול', danger: true });
-    if (ok) { CH.store.unlockParticipant(n); refresh(); CH.ui.toast(`משתתף ${n} נפתח מחדש`); }
+    if (ok) { CH.store.unlockParticipant(n); refresh(); CH.ui.toast(`כוורת ${n} נפתחה מחדש`); }
   }
 
   async function resetRound() {
     CH.sound && CH.sound.play('click');
-    const ok = await CH.ui.confirm('להתחיל סבב חדש?', 'כל התוצאות של המשתתפים יימחקו והלוח יתאפס.', { ok: 'סבב חדש', cancel: 'ביטול', danger: true });
+    const ok = await CH.ui.confirm('להתחיל סבב חדש?', 'כל התוצאות יימחקו וכל הכוורות ייפתחו מחדש.', { ok: 'סבב חדש', cancel: 'ביטול', danger: true });
     if (ok) { CH.store.resetRound(); refresh(); CH.ui.toast('סבב חדש התחיל', { kind: 'ok' }); }
   }
 

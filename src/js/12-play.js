@@ -27,10 +27,10 @@
     el.append(h('header.scr-head',
       h('div.ph-brand',
         h('div.emb', { html: CH.emblemSvg({ shaded: true }) }),
-        h('div', h('div.t1.gold-text', CH.store.displayTitle()), h('div.who', { style: { '--c': CH.participantColor(c.n) } }, h('i'), `משתתף ${c.n}`))),
+        h('div', h('div.t1.gold-text', CH.store.displayTitle()), h('div.who', { style: { '--c': CH.participantColor(c.n) } }, h('i'), `כוורת ${c.n}`))),
       h('div.spacer'),
       refs.score));
-    el.append(h('div.ph-progress', { style: { top: '96px' } }, refs.progLbl, refs.dots));
+    el.append(h('div.ph-progress', { style: { top: '74px', left: '770px' } }, refs.progLbl, refs.dots));
 
     // ladder (tree + climber)
     refs.ladderBox = h('div.ladder-box');
@@ -40,7 +40,8 @@
     // question + answers
     refs.qTag = h('div.q-tag', `שאלה ${st.idx + 1}`);
     refs.qText = h('p.q-text.heb', { lang: 'he' });
-    refs.qBoard = h('div.q-board.glass.empty', h('div.orn.top', { html: ORN }), refs.qTag, refs.qText, h('div.orn.bot', { html: ORN }));
+    refs.timer = h('div.q-timer', { hidden: !settings().answerTime, html: `<svg viewBox="0 0 100 100"><defs><linearGradient id="tmG" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fff3c4"/><stop offset=".5" stop-color="#f6c64e"/><stop offset="1" stop-color="#c4801c"/></linearGradient></defs><circle class="trk" cx="50" cy="50" r="44"/><circle class="arc" cx="50" cy="50" r="44" pathLength="100"/></svg><b>${settings().answerTime}</b>` });
+    refs.qBoard = h('div.q-board.glass.empty', h('div.orn.top', { html: ORN }), refs.qTag, refs.timer, refs.qText, h('div.orn.bot', { html: ORN }));
     refs.source = h('div.q-source', { html: CH.ui.icons.book + '<span></span>' });
     refs.half = h('div.q-half', '');
     refs.ans = []; refs.slots = [];
@@ -117,13 +118,15 @@
     updateProgress();
     refs.qTag.textContent = `שאלה ${st.idx + 1}`;
     refs.qBoard.classList.remove('empty');
-    refs.half.style.opacity = 0; refs.source.style.opacity = 0;
+    refs.half.style.opacity = 0; refs.half.classList.remove('is-timeout'); refs.source.style.opacity = 0;
+    refs.timer.classList.remove('warn', 'out'); refs.timer.style.setProperty('--p', 100); refs.timer.querySelector('b').textContent = settings().answerTime;
     refs.next.hidden = true;
     refs.fifty.disabled = true; refs.fifty.classList.remove('used');
 
     // question text, word by word
     const words = wordsInto(refs.qText, q.q);
-    fit(refs.qText, [76, 72, 68, 64, 58, 52], 282);
+    refs.qBoard.classList.toggle('has-timer', !!settings().answerTime);
+    fit(refs.qText, [76, 72, 68, 64, 58, 52], settings().answerTime ? 268 : 284);
     words.forEach((w) => (w.style.opacity = 0));
     snd('question');
     animate(refs.qTag, [{ opacity: 0, transform: 'translateY(10px) scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(.34,1.56,.64,1)' });
@@ -154,11 +157,58 @@
     refs.ans.forEach((b) => b.classList.add('is-ready'));
     refs.fifty.disabled = false;
     st.phase = 'answering';
+    startTimer();
+  }
+
+  // ---------------- answer timer ("זמן מענה מוגדר") ----------------
+  const tm = { total: 0, left: 0, last: 0, raf: 0, running: false, sec: -1 };
+  function startTimer() {
+    const T = settings().answerTime;
+    refs.timer.hidden = !T;
+    refs.timer.classList.remove('warn', 'out');
+    if (!T) return;
+    Object.assign(tm, { total: T * 1000, left: T * 1000, last: performance.now(), running: true, sec: -1 });
+    animate(refs.timer, [{ opacity: 0, transform: 'scale(.5) rotate(-90deg)' }, { opacity: 1, transform: 'none' }], { duration: 600, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+    cancelAnimationFrame(tm.raf); tm.raf = requestAnimationFrame(tickTimer);
+  }
+  function tickTimer(now) {
+    if (!st || !tm.running) return;
+    tm.left -= now - tm.last; tm.last = now;
+    const left = Math.max(0, tm.left), sec = Math.ceil(left / 1000);
+    refs.timer.style.setProperty('--p', (left / tm.total * 100).toFixed(2));
+    if (sec !== tm.sec) {
+      tm.sec = sec; refs.timer.querySelector('b').textContent = sec;
+      if (sec <= 5 && sec > 0) { refs.timer.classList.add('warn'); snd('click'); }
+    }
+    if (left <= 0) { tm.running = false; refs.timer.classList.add('out'); timeUp(); return; }
+    tm.raf = requestAnimationFrame(tickTimer);
+  }
+  function pauseTimer() { tm.running = false; cancelAnimationFrame(tm.raf); }
+  function resumeTimer() { if (st && st.phase === 'answering' && tm.left > 0 && settings().answerTime) { tm.running = true; tm.last = performance.now(); tm.raf = requestAnimationFrame(tickTimer); } }
+
+  /** Time ran out: no points, reveal the right answer. */
+  async function timeUp() {
+    if (!st || st.phase !== 'answering') return;
+    st.phase = 'locked';
+    refs.fifty.disabled = true;
+    refs.ans.forEach((x) => { x.classList.remove('is-ready'); x.classList.add('is-dim'); });
+    snd('wrong');
+    refs.half.innerHTML = 'הזמן נגמר';
+    refs.half.classList.add('is-timeout');
+    animate(refs.half, [{ opacity: 0, transform: 'scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 500, easing: 'cubic-bezier(.34,1.56,.64,1)' });
+    await sleep(700);
+    const ci = st.order.findIndex((a) => a.correct);
+    const cb = refs.ans[ci];
+    cb.classList.remove('is-dim', 'is-gone');
+    cb.classList.add('is-correct', 'is-reveal');
+    cb.querySelector('.mark').innerHTML = CH.ui.icons.check;
+    await afterReveal(false, 0, null, []);
   }
 
   async function select(i) {
     if (!st || st.phase !== 'answering' || st.removed.has(i)) return;
     st.phase = 'locked';
+    pauseTimer();
     const b = refs.ans[i];
     refs.fifty.disabled = true;
     refs.ans.forEach((x, j) => { x.classList.remove('is-ready'); if (j !== i && !st.removed.has(j)) x.classList.add('is-dim'); });
@@ -170,7 +220,8 @@
     const ci = st.order.findIndex((a) => a.correct);
     const ok = i === ci;
     const s = settings();
-    const pts = ok ? (st.used5050 && s.halveOn5050 ? s.points / 2 : s.points) : 0;
+    const base = CH.store.pointsOf(st.qs[st.idx]);
+    const pts = ok ? (st.used5050 && s.halveOn5050 ? base / 2 : base) : 0;
     const c = st.cur;
     b.classList.remove('is-locked');
     const climbs = [];
@@ -194,7 +245,13 @@
       cb.classList.add('is-correct', 'is-reveal');
       cb.querySelector('.mark').innerHTML = CH.ui.icons.check;
     }
-    c.log[st.idx] = { qid: st.qs[st.idx].id, ok, pts, used5050: st.used5050, chosen: st.order[i].text };
+    await afterReveal(ok, pts, st.order[i].text, climbs);
+  }
+
+  /** Shared tail after a reveal: save, progress, source line, NEXT button. */
+  async function afterReveal(ok, pts, chosen, climbs) {
+    const c = st.cur;
+    c.log[st.idx] = { qid: st.qs[st.idx].id, ok, pts, used5050: st.used5050, chosen, timeout: chosen == null };
     if (st.used5050) c.used5050 = (c.used5050 || 0) + 1;
     CH.store.saveCurrent({ idx: st.idx + 1, score: c.score, correct: c.correct, used5050: c.used5050, log: c.log });
     updateProgress();
@@ -256,7 +313,8 @@
     gone.forEach((j) => { st.removed.add(j); refs.ans[j].classList.remove('is-ready'); });
     const s = settings();
     if (s.halveOn5050) {
-      refs.half.innerHTML = `50:50 · השאלה שווה <b>${fmtScore(s.points / 2)}</b> נק׳`;
+      refs.half.classList.remove('is-timeout');
+      refs.half.innerHTML = `50:50 · השאלה שווה <b>${fmtScore(CH.store.pointsOf(st.qs[st.idx]) / 2)}</b> נק׳`;
       animate(refs.half, [{ opacity: 0, transform: 'scale(.8)' }, { opacity: 1, transform: 'none' }], { duration: 500, delay: 400, easing: 'cubic-bezier(.34,1.56,.64,1)' });
     }
     await Promise.all(gone.map((j, k) => sleep(k * 220).then(() => (fxOn('dissolve')
@@ -292,12 +350,13 @@
 
   async function exitPrompt() {
     if (!st || st.phase === 'locked' || st.phase === 'showing') return;
+    pauseTimer();
     const r = await CH.ui.modal({
-      title: `לצאת מהמשחק של משתתף ${st.cur.n}?`,
+      title: `לצאת מכוורת ${st.cur.n}?`,
       body: 'ההתקדמות נשמרת — אפשר לחזור ולהמשיך מאותה נקודה.',
       actions: [{ key: 'stay', label: 'המשך לשחק', kind: 'gold' }, { key: 'leave', label: 'חזרה ללוח', kind: 'glass' }],
     });
-    if (r && r.action === 'leave') { snd('back'); CH.ui.go('board'); }
+    if (r && r.action === 'leave') { snd('back'); CH.ui.go('board'); } else resumeTimer();
   }
 
   CH.ui.register('play', {
@@ -318,7 +377,7 @@
     afterEnter() {
       if (st && st.ladder && st.ladder.el) animate(st.ladder.el, [{ opacity: 0, transform: 'translateX(60px)' }, { opacity: 1, transform: 'none' }], { duration: 900, easing: 'cubic-bezier(.16,1,.3,1)' });
     },
-    leave() { if (st && st.ladder) { try { st.ladder.destroy(); } catch (e) { /* ignore */ } } st = null; CH.sound && CH.sound.stopAll && CH.sound.stopAll(); },
+    leave() { pauseTimer(); if (st && st.ladder) { try { st.ladder.destroy(); } catch (e) { /* ignore */ } } st = null; CH.sound && CH.sound.stopAll && CH.sound.stopAll(); },
     onKey(e) {
       if (!st) return;
       const code = e.code;

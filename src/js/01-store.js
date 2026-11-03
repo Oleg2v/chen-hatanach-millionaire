@@ -14,6 +14,8 @@
     halveOn5050: true,
     stripCantillation: true,    // when pasting/importing: remove te'amim, keep nikud
     sound: true,
+    answerTime: 30,             // seconds per question (0 = no timer) — "זמן מענה מוגדר"
+    theme: 'modern',            // 'modern' (fresh concept, per the client's spec) | 'classic' (Jerusalem skyline)
   };
 
   // Demo questions — text copied verbatim from the brief (do not edit nikud).
@@ -55,8 +57,11 @@
       correct: clean(raw.correct ?? raw.answer ?? ''),
       wrong: [0, 1, 2].map((i) => clean(wrong[i] ?? '')),
       source: clean(raw.source ?? ''),
+      points: (() => { const p = parseFloat(String(raw.points ?? raw['ניקוד'] ?? '').replace(',', '.')); return Number.isFinite(p) && p > 0 ? p : null; })(),
     };
   }
+  /** Points a question is worth (its own value, or the game default). */
+  function pointsOf(q) { return (q && q.points > 0 ? q.points : settings.points); }
   /** Returns array of Hebrew error strings (empty = valid). */
   function validateQuestion(q) {
     const errs = [];
@@ -76,7 +81,7 @@
   const api = {
     KEY, DEFAULT_SETTINGS, DEMO_QUESTIONS, DEMO_SET_ID,
     storageOk: LS.ok,
-    normalizeQuestion, validateQuestion,
+    normalizeQuestion, validateQuestion, pointsOf,
 
     // settings
     getSettings: () => ({ ...settings }),
@@ -85,6 +90,8 @@
       settings.participants = Math.max(1, Math.min(60, Math.round(+settings.participants || 16)));
       settings.perParticipant = [1, 4, 10].includes(+settings.perParticipant) ? +settings.perParticipant : 4;
       settings.points = Math.max(1, Math.min(1000, +settings.points || 6));
+      settings.answerTime = [0, 10, 15, 20, 30, 45, 60, 90].includes(+settings.answerTime) ? +settings.answerTime : 30;
+      settings.theme = settings.theme === 'classic' ? 'classic' : 'modern';
       changed('settings');
       return api.getSettings();
     },
@@ -138,7 +145,7 @@
     exportSet(id) {
       const s = getSet(id); if (!s) return null;
       return { format: 'chen-hatanach-questions', version: 1, name: s.name, exportedAt: new Date().toISOString(),
-        questions: s.questions.map(({ q, correct, wrong, source }) => ({ q, correct, wrong, source })) };
+        questions: s.questions.map(({ q, correct, wrong, source, points }) => (points ? { q, correct, wrong, source, points } : { q, correct, wrong, source })) };
     },
 
     // ---------- round ----------
