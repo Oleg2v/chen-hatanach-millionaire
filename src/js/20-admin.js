@@ -13,9 +13,12 @@
   const EASE = 'cubic-bezier(.16,1,.3,1)';
   const TABS = [
     { key: 'settings', label: 'הגדרות', icon: 'sliders' },
-    { key: 'questions', label: 'מאגרי שאלות', icon: 'layers' },
+    { key: 'questions', label: 'אוספי שאלות', icon: 'layers' },
     { key: 'import', label: 'ייבוא', icon: 'upload' },
   ];
+  const IMPORTABLE = /\.(xlsx|xlsm|xls|ods|csv|tsv|txt|json)$/i;
+  const TITLE_MAX = 40, TITLE_WARN = 30;      // the game fits long titles to width; past ~30 characters they get visibly smaller
+  const LONG_Q = 110, LONG_A = 30;            // past these (letters, without nikud) the game drops to a smaller font
 
   // ---------------- icons: shared set + a few local ones in the same 24×24 stroke style ----------------
   const sv = (inner, sw = 2) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${inner}</svg>`;
@@ -48,8 +51,11 @@
   }
   const put = (el, ...kids) => el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
   const nf = (n) => Number(n || 0).toLocaleString('he-IL');
+  // Counts with Hebrew number agreement ("שאלה אחת תימחק" / "4 שאלות יימחקו").
   const qCount = (n) => (n === 1 ? 'שאלה אחת' : `${nf(n)} שאלות`);
   const rowsTxt = (n) => (n === 1 ? 'שורה אחת' : `${nf(n)} שורות`);
+  const okShort = (n) => (n === 1 ? 'תקינה אחת' : `${nf(n)} תקינות`);
+  const loadedTxt = (n) => (n === 1 ? 'נטענה שאלה אחת' : `נטענו ${nf(n)} שאלות`);
   /** "בדיקה-20.xlsx" stays readable in RTL: the Latin extension is isolated at the end. */
   const fileLabel = (name) => {
     const m = String(name || '').match(/^(.*?)(\.[a-z0-9]{1,5})$/i);
@@ -70,7 +76,18 @@
     return (sp > n * 0.5 ? s.slice(0, sp) : s.slice(0, end)).trimEnd() + '…';
   }
   const fileSafe = (s) => String(s || 'questions').replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim() || 'questions';
-  const noMarks = (s) => String(s || '').replace(/[\u0591-\u05c7\u200e\u200f]/g, '').toLowerCase();
+  /** Search key: maqaf/hyphen = space (so \u00ab\u05d0\u05dc \u05e9\u05d0\u05d5\u05dc\u00bb finds \u00ab\u05d0\u05b6\u05dc\u05be\u05e9\u05b8\u05c1\u05d0\u05d5\u05bc\u05dc\u00bb), no nikud/te'amim, one kind of quote. */
+  const noMarks = (s) => String(s || '').replace(/[\u05be\-\u2010-\u2014]/g, ' ').replace(/[\u0591-\u05c7\u200e\u200f]/g, '')
+    .replace(/[\u05f4"]/g, '"').replace(/[\u05f3']/g, "'").replace(/\s+/g, ' ').toLowerCase();
+  /** Duplicate key: question text + correct answer, ignoring nikud and punctuation (same rule the store uses when drawing). */
+  const textKey = (s) => (S().textKey ? S().textKey(s) : String(s || '').replace(/[\u0591-\u05c7]/g, '').replace(/[^\u05d0-\u05eaa-z0-9]+/gi, ' ').trim());
+  const dupKey = (q) => textKey(q.q) + '|' + textKey(q.correct);
+  /** Non-blocking note for rows the game will show in a smaller font. */
+  const bare = (s) => String(s || '').replace(/[\u0591-\u05bd\u05bf-\u05c7\u200e\u200f]/g, '').trim();
+  function longNote(q) {
+    const lq = bare(q.q).length > LONG_Q, la = [q.correct, ...(q.wrong || [])].some((a) => bare(a).length > LONG_A);
+    return lq && la ? '\u05e9\u05d0\u05dc\u05d4 \u05d5\u05ea\u05e9\u05d5\u05d1\u05d4 \u05d0\u05e8\u05d5\u05db\u05d5\u05ea \u2013 \u05d9\u05d5\u05e6\u05d2\u05d5 \u05d1\u05d2\u05d5\u05e4\u05df \u05e7\u05d8\u05df \u05d9\u05d5\u05ea\u05e8' : lq ? '\u05e9\u05d0\u05dc\u05d4 \u05d0\u05e8\u05d5\u05db\u05d4 \u2013 \u05ea\u05d5\u05e6\u05d2 \u05d1\u05d2\u05d5\u05e4\u05df \u05e7\u05d8\u05df \u05d9\u05d5\u05ea\u05e8' : la ? '\u05ea\u05e9\u05d5\u05d1\u05d4 \u05d0\u05e8\u05d5\u05db\u05d4 \u2013 \u05ea\u05d5\u05e6\u05d2 \u05d1\u05d2\u05d5\u05e4\u05df \u05e7\u05d8\u05df \u05d9\u05d5\u05ea\u05e8' : '';
+  }
   const rtf = (() => { try { return new Intl.RelativeTimeFormat('he', { numeric: 'auto' }); } catch (e) { return null; } })();
   function ago(t) {
     if (!t || !rtf) return '';
@@ -203,10 +220,11 @@
   // Open / close
   // ======================================================================
   function open(t) {
+    const first = !isOpenFlag;
+    if (first) bus.emit('admin:opened');                    // the game pauses its answer timer while the admin covers it
     if (!root) build();
     if (closing) { clearTimeout(closing); closing = null; }
     root.getAnimations().forEach((a) => a.cancel());        // reopened mid-close: drop the fade-out
-    const first = !isOpenFlag;
     isOpenFlag = true;
     root.hidden = false;
     document.body.classList.add('in-admin');
@@ -246,14 +264,22 @@
       e.preventDefault(); flushAllRows(); markSaved();
     }
   });
-  // Never let a file dropped anywhere navigate the window away from the game.
+  // Never let a file dropped anywhere navigate the window away from the game (admin open or not).
+  // A question file dropped on the game opens the admin on the import tab and loads it.
+  const carriesFiles = (e) => !!(e.dataTransfer && Array.prototype.includes.call(e.dataTransfer.types || [], 'Files'));
   ['dragover', 'drop'].forEach((ev) => window.addEventListener(ev, (e) => {
-    if (!isOpenFlag || !e.dataTransfer) return;
+    if (!carriesFiles(e)) return;
     e.preventDefault();
-    if (ev === 'drop' && !e.__admHandled && e.dataTransfer.files && e.dataTransfer.files[0]) {
-      const f = e.dataTransfer.files[0];
-      if (/\.(xlsx|xls|csv|json|ods|txt|tsv)$/i.test(f.name)) { setTab('import'); handleFile(f); }
+    if (ev === 'dragover') { try { e.dataTransfer.dropEffect = 'copy'; } catch (x) { /* read-only in some engines */ } return; }
+    if (e.__admHandled) return;
+    const f = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    if (!IMPORTABLE.test(f.name)) {
+      CH.ui && CH.ui.toast && CH.ui.toast('אפשר לגרור לכאן קובץ שאלות: Excel, CSV או JSON', { kind: 'err', theme: isOpenFlag ? 'light' : undefined });
+      return;
     }
+    if (!isOpenFlag) open('import'); else if (tab !== 'import') setTab('import');
+    handleFile(f);
   }));
   window.addEventListener('pagehide', () => { flushAllRows(); commitDeletes(); });
   bus.on('brand:change', () => { refreshEmblem(); });
@@ -305,7 +331,7 @@
   function segmented(options, value, label, onChange) {
     let idx = Math.max(0, options.findIndex((o) => o.value === value));
     const wrap = h('div.seg', { role: 'radiogroup', 'aria-label': label, style: { '--n': options.length, '--i': idx } }, h('span.seg-thumb'));
-    const btns = options.map((o, i) => h('button.seg-btn', { type: 'button', role: 'radio', 'aria-checked': String(i === idx), onclick: () => pick(i) }, o.label));
+    const btns = options.map((o, i) => h('button.seg-btn', { type: 'button', role: 'radio', 'aria-checked': String(i === idx), 'aria-label': o.aria || null, onclick: () => pick(i) }, o.label));
     function pick(i) {
       if (i === idx) return;
       idx = i; wrap.style.setProperty('--i', i);
@@ -329,10 +355,23 @@
     return b;
   }
 
-  function textField(label, value, placeholder, onInput) {
-    const input = h('input.a-input', { type: 'text', value: value || '', placeholder, dir: 'rtl', spellcheck: 'false' });
-    input.addEventListener('input', () => onInput(input.value));
-    return h('label.field', h('span.field-label', label), input);
+  /** Text input with a length cap, typographic polish on blur (ASCII quotes → ״/׳) and an optional soft hint. */
+  function textField(label, value, placeholder, onInput, o = {}) {
+    const input = h('input.a-input', { type: 'text', value: value || '', placeholder, dir: 'rtl', spellcheck: 'false', maxlength: o.max || null });
+    const hint = h('div.field-hint', { 'aria-live': 'polite' });
+    const paintHint = () => {
+      const n = input.value.trim().length;
+      const msg = o.max && n >= o.max ? `הגעתם לאורך המרבי (${o.max} תווים)` : o.warnAt && n > o.warnAt ? o.warn : '';
+      put(hint, msg ? [ic('info'), h('span', msg), o.max ? h('span.field-count', { dir: 'ltr' }, `${n}/${o.max}`) : null] : []);
+      hint.hidden = !msg;
+    };
+    input.addEventListener('input', () => { onInput(input.value); paintHint(); });
+    input.addEventListener('change', () => {
+      const t = U.typo(input.value);
+      if (t !== input.value) { input.value = t; onInput(t); }
+    });
+    paintHint();
+    return h('label.field', h('span.field-label', label), input, hint);
   }
 
   function renderSettings() {
@@ -344,16 +383,24 @@
       if (debounce) { markSaving(); clearTimeout(saveT); saveT = setTimeout(markSaved, 500); } else markSaved();
     };
 
-    // --- identity ---
-    const tpTitle = h('div.tp-title');
-    const refreshPreview = () => { tpTitle.textContent = S().displayTitle(); };
-    const preview = h('div.tp', { 'aria-hidden': 'true' }, h('div.tp-rays'), h('div.tp-emblem', { html: emblemHTML() }), tpTitle,
-      h('div.tp-cap', 'תצוגה מקדימה · מסך הפתיחה'));
+    // --- identity: a true miniature of the splash (title big, level in a pill below), fitted like the game fits it ---
+    const tpTitle = h('div.tp-title', h('span.tp-t')), tpLevel = h('div.tp-level');
+    const tpStage = h('div.tp-stage', h('div.tp-emblem', { html: emblemHTML() }), tpTitle, tpLevel);
+    const preview = h('div.tp', { 'aria-hidden': 'true' }, h('div.tp-rays'), tpStage, h('div.tp-cap', 'תצוגה מקדימה · מסך הפתיחה'));
+    const refreshPreview = () => {
+      const s = S().getSettings();
+      tpTitle.firstChild.textContent = U.typo(String(s.title || '').trim() || 'כוכב התנ״ך');
+      const lv = U.typo(String(s.level || '').trim());
+      tpLevel.textContent = lv; tpLevel.hidden = !lv;
+      fitPreview(preview);
+    };
     refreshPreview();
+    watchPreview(preview);
     const identity = card('title', 'שם המשחק והרמה', 'הכותרת שמופיעה במסך הפתיחה ובראש לוח הכוורות.',
       h('div.field-row',
-        textField('שם המשחק', st.title, 'כוכב התנ"ך', (v) => save({ title: v }, true)),
-        textField('רמה / שלב', st.level, 'רמה 2', (v) => save({ level: v }, true))),
+        textField('שם המשחק', st.title, 'כוכב התנ״ך', (v) => save({ title: v }, true),
+          { max: TITLE_MAX, warnAt: TITLE_WARN, warn: 'שם ארוך – במשחק הוא יוצג בגופן קטן יותר' }),
+        textField('רמה / שלב', st.level, 'רמה 2', (v) => save({ level: v }, true), { max: TITLE_MAX })),
       preview);
 
     // --- round structure ---
@@ -361,13 +408,19 @@
     const sumEl = h('div.round-sum');
     function refreshPool() {
       const s = S().getSettings(), a = S().activeSet();
-      const ok = a.questions.filter(valid).length, need = s.participants * s.perParticipant;
+      const okQs = a.questions.filter(valid);
+      const ok = okQs.length, need = s.participants * s.perParticipant;
+      // Highest score a hive can reach: per-question points when the active set has them, else the default.
+      const custom = okQs.some((q) => q.points > 0);
+      const ptsOf = (q) => (q.points > 0 ? q.points : s.points);
+      const maxPts = custom ? okQs.map(ptsOf).sort((x, y) => y - x).slice(0, s.perParticipant).reduce((t, p) => t + p, 0) : s.perParticipant * s.points;
       sumEl.replaceChildren(
-        h('div.rs-item', h('b', nf(s.participants)), h('span', 'כוורות')), h('span.rs-x', '×'),
-        h('div.rs-item', h('b', nf(s.perParticipant)), h('span', 'שאלות')), h('span.rs-x', '='),
-        h('div.rs-item', h('b', nf(need)), h('span', 'שאלות בסבב')),
+        h('div.rs-item', h('b', nf(s.participants)), h('span', s.participants === 1 ? 'כוורת' : 'כוורות')), h('span.rs-x', '×'),
+        h('div.rs-item', h('b', nf(s.perParticipant)), h('span', s.perParticipant === 1 ? 'שאלה' : 'שאלות')), h('span.rs-x', '='),
+        h('div.rs-item', h('b', nf(need)), h('span', need === 1 ? 'שאלה בסבב' : 'שאלות בסבב')),
         h('div.rs-sep'),
-        h('div.rs-item', h('b', nf(s.perParticipant * s.points)), h('span', 'ניקוד מרבי לכוורת')));
+        h('div.rs-item', { title: custom ? 'לפי הנקודות שנקבעו לשאלות באוסף הפעיל' : 'לפי ברירת המחדל של נקודות לשאלה' },
+          h('b', U.fmtScore(maxPts)), h('span', custom ? 'נקודות לכל היותר בכוורת' : 'נקודות לכל היותר בכוורת (ברירת מחדל)')));
       const go = btn('לעריכת השאלות', { kind: 'link', icon: 'next', onclick: () => { selSetId = a.id; setTab('questions'); } });
       if (ok < s.perParticipant) {
         poolNote.replaceChildren(h('div.callout.warn', ic('warn'), h('div',
@@ -385,15 +438,16 @@
       srow('מספר כוורות', 'בין 1 ל־60 משבצות בלוח הכוורות', stepper(st.participants, 1, 60, 'מספר כוורות', (v) => save({ participants: v }))),
       srow('שאלות בכל כוורת', 'כמה שאלות יישאל המשתתף שבחר בכוורת',
         segmented([1, 4, 10].map((n) => ({ value: n, label: String(n) })), st.perParticipant, 'שאלות בכל כוורת', (v) => save({ perParticipant: v }))),
-      srow('ניקוד לשאלה', 'ברירת מחדל — אפשר לקבוע ניקוד אחר לשאלה מסוימת בטבלת השאלות', stepper(st.points, 1, 1000, 'ניקוד לשאלה', (v) => save({ points: v }))),
-      srow('זמן מענה לשאלה', 'שעון עצר על לוח השאלה. כשהזמן נגמר מוצגת התשובה הנכונה, בלי ניקוד.',
-        segmented([0, 15, 20, 30, 45, 60].map((n) => ({ value: n, label: n ? `${n} שנ׳` : 'ללא' })), st.answerTime, 'זמן מענה לשאלה', (v) => save({ answerTime: v }))),
+      srow('נקודות לשאלה', 'ברירת מחדל — אפשר לקבוע מספר נקודות אחר לשאלה מסוימת בטבלת השאלות', stepper(st.points, 1, 1000, 'נקודות לשאלה', (v) => save({ points: v }))),
+      srow('זמן מענה לשאלה', 'ספירה לאחור על לוח השאלה. כשהזמן נגמר מוצגת התשובה הנכונה, ולא ניתנות נקודות.',
+        segmented([0, 15, 20, 30, 45, 60].map((n) => ({ value: n, label: n ? h('span', String(n), h('small', ' שנ׳')) : 'ללא', aria: n ? `${n} שניות` : 'ללא הגבלת זמן' })),
+          st.answerTime, 'זמן מענה לשאלה', (v) => save({ answerTime: v })), '.is-stack'),
       sumEl, poolNote);
 
     // --- behaviour toggles ---
     const behaviour = card('sparkle', 'גלגלי הצלה, תוכן וצליל', 'איך המשחק מתנהג באולם, ואיך נשמר טקסט שמודבק מתוכנות תנ״ך.',
-      srow('50:50 מחלק את הניקוד בחצי', 'משתתף שנעזר בגלגל ההצלה יקבל חצי מהניקוד על אותה שאלה.',
-        toggle(st.halveOn5050, '50:50 מחלק את הניקוד בחצי', (v) => save({ halveOn5050: v }))),
+      srow('50:50 מחצה את הנקודות', 'משתתף שנעזר בגלגל ההצלה יקבל חצי מהנקודות על אותה שאלה.',
+        toggle(st.halveOn5050, '50:50 מחצה את הנקודות', (v) => save({ halveOn5050: v }))),
       srow('הסרת טעמי המקרא בהדבקה (הניקוד נשמר)', 'טקסט שמודבק מתוכנות תנ״ך או מיובא מקובץ יישמר עם ניקוד ובלי טעמים.',
         toggle(st.stripCantillation, 'הסרת טעמי המקרא בהדבקה', (v) => save({ stripCantillation: v }))),
       srow('צלילים', 'מוזיקת רקע ואפקטים קוליים במהלך המשחק.',
@@ -405,7 +459,7 @@
 
     // --- branding ---
     const brand = card('palette', 'מיתוג', 'קובצי הלוגו של חן התנ״ך (PNG שקוף). בלי קבצים מוצג שחזור מובנה של הלוגו.',
-      srow('סגנון רקע', 'מודרני — אופק של אור וזהב (לפי האפיון) · קלאסי — קו הרקיע של ירושלים מהמשחק המקורי',
+      srow('סגנון רקע', 'מודרני — אופק של אור וזהב · קלאסי — קו הרקיע של ירושלים, כמו במשחק המקורי',
         segmented([{ value: 'modern', label: 'מודרני' }, { value: 'classic', label: 'קלאסי' }], st.theme || 'modern', 'סגנון רקע', (v) => save({ theme: v }))),
       h('div.brand-grid', brandSlot('wordmark', 'לוגו מילולי'), brandSlot('emblem', 'סמל')));
 
@@ -423,10 +477,10 @@
     const roundCard = card('trophy', 'הסבב הנוכחי', 'משבצת צבעונית = כוורת ששוחקה.',
       h('div.rc-stat', h('div.rc-num', h('b', nf(played)), h('span', ` / ${nf(st.participants)}`)), h('div.rc-lbl', played ? 'כוורות שוחקו' : 'אף כוורת עוד לא שוחקה')),
       tiles,
-      h('p.rc-note', 'איפוס מוחק את התוצאות של כל הכוורות ומתחיל סבב חדש. השאלות וההגדרות נשמרות.'),
+      h('p.rc-note', 'איפוס מוחק את התוצאות של כל הכוורות (וגם מבטל כוורת שבאמצע המשחק) ומתחיל סבב חדש. השאלות וההגדרות נשמרות.'),
       h('div.rc-foot',
         btn('איפוס הסבב', { kind: 'danger', icon: 'refresh', onclick: async () => {
-          const ok = await ui('confirm', 'איפוס הסבב', played ? `התוצאות של ${nf(played)} כוורות יימחקו, וכל הכוורות ייפתחו מחדש.` : 'כל הכוורות ייפתחו מחדש וחפיסת השאלות תעורבב מחדש.', { ok: 'איפוס הסבב', danger: true });
+          const ok = await ui('confirm', 'איפוס הסבב', resetText(), { ok: 'איפוס הסבב', danger: true });
           if (!ok) return;
           S().resetRound(); markSaved(); toast('הסבב אופס — אפשר להתחיל מחדש', 'ok');
           setTab('settings', { keepScroll: true });
@@ -438,7 +492,49 @@
       h('div.set-grid', h('div.set-col', identity, round, behaviour), h('div.set-col', brand, roundCard, offline)));
   }
 
+  /** Reset-round confirmation, worded for what will actually happen (results, a hive in progress, singular/plural). */
+  function resetText() {
+    const n = S().getSettings().participants, r = S().getRound();
+    const played = Object.keys(r.results || {}).filter((k) => +k <= n).length;
+    const cur = r.current && r.current.n;
+    const parts = [];
+    if (played) parts.push(played === 1 ? 'התוצאה של כוורת אחת תימחק' : `התוצאות של ${nf(played)} כוורות יימחקו`);
+    if (cur) parts.push(`כוורת ${nf(cur)}, שנמצאת עכשיו באמצע המשחק, תבוטל`);
+    const opens = 'כל הכוורות ייפתחו מחדש וסדר השאלות יעורבב מחדש.';
+    return parts.length ? `${parts.join(', ')}, ו${opens}` : opens;
+  }
+
+  // ---- splash miniature: laid out in stage pixels (1920 wide) and scaled down, so long titles shrink exactly like in the game ----
+  const STAGE_W = 1920, TITLE_FIT_W = 1800, TITLE_PX = 176, LEVEL_PX = 48;
+  function fitPreview(tp) {
+    if (!tp || !tp.isConnected) return;
+    const W = tp.clientWidth; if (!W) return;
+    const stage = tp.querySelector('.tp-stage'), title = tp.querySelector('.tp-title'), t = tp.querySelector('.tp-t'), lvl = tp.querySelector('.tp-level');
+    title.style.fontSize = ''; lvl.style.fontSize = '';
+    const tw = t.offsetWidth;                                   // layout width: unaffected by the scale transform
+    if (tw > TITLE_FIT_W) title.style.fontSize = (TITLE_PX * TITLE_FIT_W / tw).toFixed(1) + 'px';
+    const lw = lvl.hidden ? 0 : lvl.offsetWidth;
+    if (lw > TITLE_FIT_W) lvl.style.fontSize = (LEVEL_PX * TITLE_FIT_W / lw).toFixed(1) + 'px';
+    const k = W / STAGE_W;
+    stage.style.transform = `scale(${k})`;
+    tp.style.height = Math.ceil(stage.offsetHeight * k) + 'px';
+  }
+  let previewRO = null;
+  function watchPreview(tp) {
+    if (window.ResizeObserver) {
+      // refit only when the width changes (fitPreview sets the height itself — never loop on that)
+      if (!previewRO) previewRO = new ResizeObserver((entries) => entries.forEach((e) => {
+        const w = Math.round(e.contentRect.width);
+        if (+e.target.dataset.w !== w) { e.target.dataset.w = w; requestAnimationFrame(() => fitPreview(e.target)); }
+      }));
+      previewRO.disconnect(); previewRO.observe(tp);
+    }
+    requestAnimationFrame(() => fitPreview(tp));
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => fitPreview(tp));
+  }
+
   // ---- branding slots ----
+  const sessionBrand = new Map();     // key → data URL uploaded in this window (even when it could not be stored)
   function brandSlot(key, title) {
     const view = h('div.bs-view');
     const badge = h('span.bs-badge');
@@ -450,13 +546,16 @@
     function paint() {
       const cur = (window.CH_BRAND || {})[key];
       const stored = (LS.get(BRAND_KEY, {}) || {})[key];
-      const uploaded = typeof stored === 'string' && stored === cur;
+      const kept = typeof stored === 'string' && stored === cur;                         // uploaded and stored
+      const temp = !kept && typeof cur === 'string' && sessionBrand.get(key) === cur;   // uploaded, but too big to store
+      const uploaded = kept || temp;
       const embedded = typeof cur === 'string' && !uploaded;
       try { view.innerHTML = CH.art && CH.art[key] ? CH.art[key](key === 'emblem' ? { shaded: true } : {}) : ''; } catch (e) { view.innerHTML = ''; }
       if (!view.innerHTML && cur) view.replaceChildren(h('img', { src: cur, alt: title }));
       if (!view.innerHTML) view.replaceChildren(h('span.bs-empty', ic('image')));
-      badge.textContent = uploaded ? 'קובץ שהועלה' : embedded ? 'קובץ מקורי' : 'שחזור מובנה';
-      badge.dataset.kind = uploaded || embedded ? 'file' : 'builtin';
+      badge.textContent = temp ? 'הועלה · עד סגירת החלון' : uploaded ? 'קובץ שהועלה' : embedded ? 'קובץ מקורי' : 'שחזור מובנה';
+      badge.dataset.kind = temp ? 'temp' : uploaded || embedded ? 'file' : 'builtin';
+      badge.title = temp ? 'אין מספיק מקום לשמירה קבועה של הקובץ. אחרי סגירת החלון יוצג השחזור המובנה.' : '';
       put(acts,
         btn(uploaded ? 'החלפה' : 'העלאת PNG', { size: 'sm', icon: 'upload', onclick: () => input.click() }),
         uploaded ? btn('הסרה', { size: 'sm', kind: 'ghost-danger', icon: 'trash', onclick: () => { saveBrand(key, null); paint(); toast('הלוגו הוסר — מוצג השחזור המובנה'); } }) : null);
@@ -468,7 +567,7 @@
         const persisted = saveBrand(key, url);
         paint();
         motion(view.firstChild, [{ opacity: 0, transform: 'scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 420 });
-        toast(persisted ? 'הלוגו עודכן' : 'הלוגו עודכן עד סגירת החלון (אין מקום לשמירה קבועה)', persisted ? 'ok' : 'info');
+        toast(persisted ? 'הלוגו עודכן' : 'הלוגו עודכן עד סגירת החלון — הקובץ גדול מדי לשמירה קבועה', persisted ? 'ok' : 'info');
       } catch (e) { console.error(e); toast('לא ניתן לקרוא את התמונה', 'err'); }
     }
     view.addEventListener('dragover', (e) => { e.preventDefault(); view.classList.add('is-over'); });
@@ -481,36 +580,62 @@
     return slot;
   }
 
-  /** File → data URL; large bitmaps are scaled down so they fit comfortably in localStorage. */
-  function shrinkImage(file) {
+  /** File → data URL. Big bitmaps are scaled to ≤1000 px and re-encoded (PNG/WebP with transparency,
+   *  WebP/JPEG for photos), stepping down until the result fits comfortably in localStorage. */
+  const BRAND_MAX_CHARS = 600 * 1024;
+  function readDataUrl(file) {
     return new Promise((resolve, reject) => {
       const fr = new FileReader();
       fr.onerror = () => reject(fr.error);
-      fr.onload = () => {
-        const url = String(fr.result);
-        if (file.type === 'image/svg+xml' || file.size < 450 * 1024) return resolve(url);
-        const img = new Image();
-        img.onload = () => {
-          try {
-            const k = Math.min(1, 1400 / Math.max(img.naturalWidth, img.naturalHeight));
-            const c = document.createElement('canvas');
-            c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
-            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-            const out = c.toDataURL('image/png');
-            resolve(out.length < url.length ? out : url);
-          } catch (e) { resolve(url); }
-        };
-        img.onerror = () => reject(new Error('image'));
-        img.src = url;
-      };
+      fr.onload = () => resolve(String(fr.result));
       fr.readAsDataURL(file);
     });
+  }
+  function loadImage(url) {
+    return new Promise((resolve, reject) => { const img = new Image(); img.onload = () => resolve(img); img.onerror = () => reject(new Error('image')); img.src = url; });
+  }
+  function hasAlpha(g, w, hgt) {
+    try {
+      const d = g.getImageData(0, 0, w, hgt).data, step = Math.max(1, Math.floor((w * hgt) / 60000)) * 4;
+      for (let i = 3; i < d.length; i += step) if (d[i] < 250) return true;
+      return false;
+    } catch (e) { return true; }
+  }
+  async function shrinkImage(file) {
+    const url = await readDataUrl(file);
+    if (file.type === 'image/svg+xml') return url;
+    const img = await loadImage(url);
+    const W = img.naturalWidth, H = img.naturalHeight;
+    if (url.length <= 300 * 1024 && Math.max(W, H) <= 1000) return url;          // already small: keep the original bytes
+    let best = url;
+    try {
+      const c = document.createElement('canvas'), g = c.getContext('2d');
+      for (const side of [1000, 800, 640, 480]) {
+        const k = Math.min(1, side / Math.max(W, H));
+        c.width = Math.max(1, Math.round(W * k)); c.height = Math.max(1, Math.round(H * k));
+        g.clearRect(0, 0, c.width, c.height);
+        g.drawImage(img, 0, 0, c.width, c.height);
+        const outs = hasAlpha(g, c.width, c.height)
+          ? [c.toDataURL('image/png'), c.toDataURL('image/webp', 0.9)]
+          : [c.toDataURL('image/webp', 0.86), c.toDataURL('image/jpeg', 0.86)];
+        const out = outs.reduce((a, b) => (b.length < a.length ? b : a));
+        if (out.length < best.length) best = out;
+        if (best.length <= BRAND_MAX_CHARS) break;
+      }
+    } catch (e) { console.warn(e); }
+    return best;
   }
 
   function saveBrand(key, dataUrl) {
     const stored = { ...(LS.get(BRAND_KEY, {}) || {}) };
     if (dataUrl) stored[key] = dataUrl; else delete stored[key];
-    const ok = LS.set(BRAND_KEY, stored);
+    let ok = LS.set(BRAND_KEY, stored);
+    if (dataUrl) sessionBrand.set(key, dataUrl); else sessionBrand.delete(key);
+    if (!ok && dataUrl) {
+      // Could not store the new logo: drop the stale stored one too, so a reload never brings back the replaced logo.
+      const prev = { ...(LS.get(BRAND_KEY, {}) || {}) }; delete prev[key];
+      LS.set(BRAND_KEY, prev);
+    }
     const b = { ...(window.CH_BRAND || {}) };
     if (dataUrl) b[key] = dataUrl; else delete b[key];
     window.CH_BRAND = b;
@@ -530,7 +655,7 @@
     { f: 'w1', label: 'תשובה שגויה 2', cls: 'c-bad', ph: 'מסיח' },
     { f: 'w2', label: 'תשובה שגויה 3', cls: 'c-bad', ph: 'מסיח' },
     { f: 'source', label: 'מקור', cls: 'c-src', ph: 'ספר פרק, פסוק' },
-    { f: 'points', label: 'ניקוד', cls: 'c-pts', ph: '—', title: 'ניקוד לשאלה זו (ריק = ברירת המחדל מההגדרות)' },
+    { f: 'points', label: 'נקודות', cls: 'c-pts', ph: '—', title: 'נקודות לשאלה זו (ריק = ברירת המחדל מההגדרות)' },
   ];
   const getF = (q, f) => (f === 'points' ? (q.points > 0 ? String(q.points) : '') : (f[0] === 'w' ? (q.wrong || [])[+f[1]] : q[f]) || '');
   const parsePts = (v) => { const n = parseFloat(String(v || '').replace(',', '.')); return Number.isFinite(n) && n > 0 ? Math.min(1000, n) : null; };
@@ -553,7 +678,7 @@
       const ta = h('textarea.q-cell', { rows: 1, 'data-f': f, placeholder: f === 'points' ? String(S().getSettings().points) : ph, spellcheck: 'false', dir: 'rtl', 'aria-label': label, title: title || null, inputmode: f === 'points' ? 'decimal' : null });
       ta.value = getF(q, f);
       const td = h('td.' + cls, ta);
-      if (f === 'q') td.append(h('div.q-issue'));
+      if (f === 'q') td.append(h('div.q-issue'), h('div.q-note'));
       tr.append(td);
     });
     tr.append(h('td.c-act', h('button.q-del', { type: 'button', title: 'מחיקת השאלה', 'aria-label': 'מחיקת השאלה', html: I.trash })));
@@ -568,6 +693,11 @@
     tr.dataset.bad = errs.length ? '1' : '';
     const issue = tr.querySelector('.q-issue');
     if (issue) issue.replaceChildren(...(bad ? [ic('warn'), h('span', errTxt(errs))] : []));
+    // long text is fine, just shown smaller in the game: a quiet, non-blocking note
+    const ln = bad ? '' : longNote(q || readRow(tr));
+    tr.classList.toggle('is-long', !!ln);
+    const note = tr.querySelector('.q-note');
+    if (note) note.replaceChildren(...(ln ? [ic('info'), h('span', ln)] : []));
     const flag = tr.querySelector('.q-flag'); if (flag) flag.title = bad ? errTxt(errs) : '';
     // point at the exact cells that still need text
     tr.querySelectorAll('textarea.q-cell').forEach((ta) => ta.classList.toggle('is-miss', bad && ta.dataset.f !== 'source' && ta.dataset.f !== 'points' && !ta.value.trim()));
@@ -625,8 +755,8 @@
     const c = counts();
     put(r.meta,
       h('span.meta-chip', ic('layers'), qCount(c.total)),
-      h('span.meta-chip.ok', h('i'), `${nf(c.ok)} תקינות`),
-      c.bad ? h('span.meta-chip.bad', h('i'), `${nf(c.bad)} דורשות תיקון`) : null,
+      h('span.meta-chip.ok', h('i'), okShort(c.ok)),
+      c.bad ? h('span.meta-chip.bad', h('i'), c.bad === 1 ? 'אחת דורשת תיקון' : `${nf(c.bad)} דורשות תיקון`) : null,
       h('span.meta-time', 'עודכן ' + ago((S().getSet(Q.setId) || {}).updatedAt)));
     if (r.badCount) r.badCount.textContent = c.bad ? nf(c.bad) : '';
     if (r.filterBad) r.filterBad.disabled = !c.bad && !Q.onlyBad;
@@ -691,7 +821,7 @@
       return it;
     }));
     const side = h('aside.set-side',
-      h('div.set-side-head', h('h2', 'מאגרי שאלות'), h('span.set-side-n', nf(sets.length))),
+      h('div.set-side-head', h('h2', 'אוספי שאלות'), h('span.set-side-n', nf(sets.length))),
       list,
       h('button.set-new', { type: 'button', onclick: newSet }, ic('plus'), 'אוסף חדש'),
       h('p.set-side-tip', 'אוסף לכל תחרות או רמה. האוסף הפעיל הוא זה שמשמש את המשחק.'));
@@ -745,7 +875,8 @@
     r.tableWrap = h('div.qt-card', table, r.empty, r.nores, h('button.qt-add', { type: 'button', onclick: () => addRow() }, ic('plus'), 'שאלה חדשה'));
 
     updateCounts();
-    const tip = h('p.q-tip', ic('info'), h('span', h('kbd', 'Enter'), ' עובר לשורה הבאה · ', h('kbd', 'Tab'), ' לתא הבא · אפשר להדביק כמה שורות ועמודות ישירות מ־Excel · ניקוד נשמר, טעמים מוסרים בהדבקה'));
+    const tip = h('p.q-tip', ic('info'), h('span', h('kbd', 'Enter'), ' עובר לשורה הבאה · ', h('kbd', 'Tab'), ' לתא הבא · אפשר להדביק כמה שורות ועמודות ישירות מ־Excel',
+      S().getSettings().stripCantillation ? ' · ניקוד נשמר, טעמים מוסרים בהדבקה' : ''));
     return h('section.adm-page.is-wide', h('div.qs', side, h('div.qs-main', head, toolbar, r.tableWrap, tip)));
   }
 
@@ -904,14 +1035,15 @@
     const s = S().createSet(name);
     selSetId = s.id; markSaved();
     setTab('questions', { keepScroll: true, force: true });
-    toast(`האוסף «${s.name}» נוצר`, 'ok');
+    toast(s.name === name ? `האוסף «${s.name}» נוצר` : `כבר יש אוסף בשם «${name}» — נוצר «${s.name}»`, 'ok');
   }
   async function renameSet() {
     const s = S().getSet(Q.setId); if (!s) return;
     const name = await ui('prompt', 'שינוי שם האוסף', s.name, { ok: 'שמירה' });
     if (!name || name === s.name) return;
-    S().renameSet(s.id, name); markSaved();
+    const got = S().renameSet(s.id, name) || (S().getSet(s.id) || {}).name; markSaved();
     setTab('questions', { keepScroll: true, force: true });
+    if (got && got !== name) toast(`כבר יש אוסף בשם «${name}» — השם נקבע ל־«${got}»`);
   }
   function dupSet() {
     leaveQuestions();
@@ -923,7 +1055,7 @@
   async function deleteSet() {
     const s = S().getSet(Q.setId); if (!s || S().getSets().length <= 1) return;
     const ok = await ui('confirm', `מחיקת האוסף «${s.name}»`,
-      (s.questions.length ? `${qCount(s.questions.length)} יימחקו לצמיתות. ` : 'האוסף ריק. ') + (s.id === S().activeSetId() ? 'זה האוסף הפעיל — אוסף אחר יופעל במקומו. ' : '') + (s.questions.length ? 'מומלץ לייצא קודם לקובץ JSON.' : ''),
+      (s.questions.length ? (s.questions.length === 1 ? 'שאלה אחת תימחק לצמיתות. ' : `${nf(s.questions.length)} שאלות יימחקו לצמיתות. `) : 'האוסף ריק. ') + (s.id === S().activeSetId() ? 'זה האוסף הפעיל — אוסף אחר יופעל במקומו. ' : '') + (s.questions.length ? 'מומלץ לייצא קודם לקובץ JSON.' : ''),
       { ok: 'מחיקת האוסף', danger: true });
     if (!ok) return;
     leaveQuestions();
@@ -943,25 +1075,34 @@
     flushAllRows(); commitDeletes();
     const data = S().exportSet(Q.setId); if (!data) return;
     U.download(fileSafe(data.name) + '.json', JSON.stringify(data, null, 2), 'application/json');
-    toast(`יוצאו ${qCount(data.questions.length)} לקובץ JSON`, 'ok');
+    const n = data.questions.length;
+    toast(n === 1 ? 'יוצאה שאלה אחת לקובץ JSON' : `יוצאו ${nf(n)} שאלות לקובץ JSON`, 'ok');
   }
 
   // ======================================================================
   // Import: parsing (pure) — xlsx / xls / ods / csv (utf-8 or windows-1255) / json
   // ======================================================================
-  /** Header text → field key ('q' | 'correct' | 'source' | {w: digit|null}) or null. */
+  /** Header text → field key ('q' | 'correct' | 'source' | 'points' | {w: digit|null}) or null.
+   *  Patterns are anchored and the cell must be short, so a real question row is never mistaken for a header. */
   function headerKey(raw) {
-    const s = String(raw == null ? '' : raw).replace(/[\u0591-\u05c7\u200e\u200f\ufeff]/g, '')
-      .replace(/[״"'׳`]/g, '').replace(/[\s_\-–—:.()[\]#]+/g, ' ').trim().toLowerCase();
-    if (!s) return null;
+    const s = String(raw == null ? '' : raw).replace(/[֑-ׇ‎‏﻿]/g, '')
+      .replace(/[״"'׳`]/g, '').replace(/[\s_\-–—:.,()[\]#*]+/g, ' ').trim().toLowerCase();
+    if (!s || s.length > 32) return null;
     const c = s.replace(/ /g, '');
+    const words = s.split(' ').length;
     const d = (s.match(/[1-3]/) || [])[0] || null;
-    if (/שגוי|מסיח|wrong|incorrect|distractor|false/.test(c)) return { w: d };
-    if (/^(מס|מספר|id$|no$|num|number|index|מזהה|רמה|level|קטגוריה)/.test(c) && !/נכונ/.test(c)) return null;
-    if (/נכונ|correct|answer|right|^תשובה$|^ans/.test(c)) return 'correct';
-    if (/שאל|question|^q$/.test(c)) return 'q';
-    if (/מקור|source|ref|פסוק|מראהמקום/.test(c)) return 'source';
-    if (/ניקוד|נקודות|points?|score/.test(c)) return 'points';
+    // negation first: 'תשובה לא נכונה 2', 'אינה נכונה', 'שגויה', 'מסיח', 'incorrect' are wrong answers, never the correct one
+    if (/(לא|אינה|אינו|אין)נכונ|שגוי|מסיח|wrong|incorrect|distractor|false/.test(c)) return { w: d };
+    // 'תשובה א׳ / ב׳ / ג׳ / ד׳' (or 1–4, a–d): the first one is the correct answer
+    const m = c.match(/^(?:ה?תשובה|answer|option)([אבגד]|[1-4]|[a-d])$/);
+    if (m) {
+      const i = 'אבגד'.includes(m[1]) ? 'אבגד'.indexOf(m[1]) : /\d/.test(m[1]) ? +m[1] - 1 : 'abcd'.indexOf(m[1]);
+      return i === 0 ? 'correct' : { w: String(i) };
+    }
+    if (/^(ה?תשובה)?ה?נכונה$|^ה?תשובה$|^(the)?correct(answer)?$|^(right)?answer$|^ans$/.test(c)) return 'correct';
+    if (/^(ה?שאלה|ה?שאלות|טקסטה?שאלה|נוסחה?שאלה|question(text)?|q)\d*$/.test(c) || (/^ה?שאלה /.test(s) && words <= 3)) return 'q';
+    if (/^(ה?מקור|מקורות|מראהמקום|ה?פסוק|source|ref|reference)/.test(c) && words <= 4) return 'source';
+    if (/^(ה?נקודות|ה?ניקוד|points?|score|pts)/.test(c) && words <= 3) return 'points';
     return null;
   }
 
@@ -988,8 +1129,11 @@
     let cols = null, start = 0;
     for (let i = 0; i < Math.min(5, rows.length); i++) {
       const keys = rows[i].map(headerKey);
-      const kinds = new Set(keys.filter(Boolean).map((k) => (typeof k === 'object' ? 'w' : k)));
-      if (kinds.size >= 2 && (kinds.has('q') || kinds.has('correct'))) { cols = mapColumns(keys); start = i + 1; break; }
+      const hits = keys.filter(Boolean);
+      const filled = rows[i].filter((c) => String(c == null ? '' : c).trim()).length;
+      const kinds = new Set(hits.map((k) => (typeof k === 'object' ? 'w' : k)));
+      // a header row is mostly recognised labels, and names the question (or both answer kinds)
+      if (hits.length >= 2 && hits.length >= filled / 2 && (kinds.has('q') || (kinds.has('correct') && kinds.has('w')))) { cols = mapColumns(keys); start = i + 1; break; }
     }
     if (!cols) {
       // No header: by position. Skip a leading running-number column if there is one.
@@ -1035,9 +1179,21 @@
     return { name, sheets: [{ name: name || 'שאלות', rows }] };
   }
 
+  /** Bytes → text: UTF-16 (Excel 'Unicode Text'), UTF-8 (with or without BOM), else Hebrew Windows (windows-1255). */
   function decodeText(buf) {
-    try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { /* not utf-8 */ }
-    try { return new TextDecoder('windows-1255').decode(buf); } catch (e) { return new TextDecoder('utf-8').decode(buf); }
+    const b = new Uint8Array(buf);
+    const dec = (enc, from) => new TextDecoder(enc).decode(b.subarray(from));
+    if (b[0] === 0xff && b[1] === 0xfe) return dec('utf-16le', 2);
+    if (b[0] === 0xfe && b[1] === 0xff) return dec('utf-16be', 2);
+    if (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) return dec('utf-8', 3);
+    // UTF-16 without a BOM: ASCII (tabs, digits, newlines) leaves a zero in every other byte
+    const n = Math.min(b.length, 1024);
+    let z0 = 0, z1 = 0;
+    for (let i = 0; i < n; i++) if (!b[i]) (i % 2 ? z1++ : z0++);
+    if (z1 >= 4 && z0 <= z1 / 16) return dec('utf-16le', 0);       // UTF-8 and windows-1255 text never contain NUL bytes
+    if (z0 >= 4 && z1 <= z0 / 16) return dec('utf-16be', 0);
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(b); } catch (e) { /* not utf-8 */ }
+    try { return new TextDecoder('windows-1255').decode(b); } catch (e) { return new TextDecoder('utf-8').decode(b); }
   }
 
   /** File → { name, kind, sheets:[{name, rows:[raw]}] } */
@@ -1052,13 +1208,23 @@
     }
     if (!['xlsx', 'xls', 'xlsm', 'ods', 'csv', 'txt', 'tsv'].includes(ext)) throw new Error('סוג קובץ לא נתמך. אפשר לטעון \u200e.xlsx, \u200e.xls, \u200e.csv או \u200e.json');
     if (!window.XLSX) throw new Error('רכיב הקריאה של Excel לא נטען. אפשר לטעון קובץ JSON.');
-    let wb;
     const text = ['csv', 'txt', 'tsv'].includes(ext);
+    const CORRUPT = 'הקובץ פגום או שאינו קובץ Excel. פתחו אותו ב־Excel, שמרו שוב ונסו שנית.';
+    if (!text) {
+      // A spreadsheet is a zip (xlsx/xlsm/ods: "PK") or an OLE container (Excel 97–2003 .xls: D0 CF 11 E0).
+      // Anything else (a renamed web page, a broken download) would otherwise be read as one line of text.
+      const b = new Uint8Array(buf, 0, Math.min(8, buf.byteLength));
+      const zip = b[0] === 0x50 && b[1] === 0x4b;
+      const ole = b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0;
+      if (!(zip || (ole && ext !== 'ods'))) throw new Error(CORRUPT);
+    }
+    let wb;
     try {
       wb = text ? XLSX.read(decodeText(buf).replace(/^\ufeff/, ''), { type: 'string', raw: true }) : XLSX.read(buf, { type: 'array' });
     } catch (e) {
       console.warn(e);
-      throw new Error(ext === 'xls' ? 'לא ניתן לקרוא את קובץ ה־Excel הישן (\u200e.xls). פתחו אותו ב־Excel ושמרו בשם כ־\u200e.xlsx או CSV.' : 'לא ניתן לקרוא את הקובץ. ודאו שהוא קובץ Excel או CSV תקין.');
+      if (/password|encrypt/i.test(String(e && e.message))) throw new Error('הקובץ מוגן בסיסמה. הסירו את הסיסמה ב־Excel, שמרו ונסו שנית.');
+      throw new Error(text ? 'לא ניתן לקרוא את הקובץ. ודאו שהוא קובץ CSV תקין.' : CORRUPT);
     }
     const sheets = wb.SheetNames.map((n) => ({ name: n, rows: rowsFromAoa(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '', blankrows: false })) }))
       .filter((s) => s.rows.length);
@@ -1066,7 +1232,7 @@
   }
 
   // ---- templates ----
-  const templateAoa = () => [[...HEAD, 'ניקוד (רשות)'], ...S().DEMO_QUESTIONS.map((q) => [q.q, q.correct, ...q.wrong, q.source, ''])];
+  const templateAoa = () => [[...HEAD, 'נקודות (רשות)'], ...S().DEMO_QUESTIONS.map((q) => [q.q, q.correct, ...q.wrong, q.source, ''])];
   function downloadXlsxTemplate() {
     if (!window.XLSX) { toast('רכיב Excel לא זמין', 'err'); return; }
     const ws = XLSX.utils.aoa_to_sheet(templateAoa());
@@ -1089,7 +1255,7 @@
   // ======================================================================
   // Import: UI
   // ======================================================================
-  const IM = { state: 'idle', file: null, sheets: [], sheet: 0, rows: [], target: 'add', setId: null, newName: '', result: null, error: null, host: null };
+  const IM = { state: 'idle', file: null, sheets: [], sheet: 0, rows: [], target: 'add', setId: null, newName: '', skipDups: true, result: null, error: null, host: null };
 
   function handleFile(file) {
     if (!file) return;
@@ -1099,8 +1265,9 @@
     parseFile(file).then(async (res) => {
       const wait = 450 - (performance.now() - t0); if (wait > 0) await U.sleep(wait);    // let the parse animation read
       if (!res.sheets.length) throw new Error('לא נמצאו שאלות בקובץ. ודאו שהעמודות לפי התבנית: ' + HEAD.join(' · '));
-      Object.assign(IM, { state: 'preview', kind: res.kind, sheets: res.sheets, sheet: 0, newName: res.name, target: 'add' });
-      IM.setId = selSetId && S().getSet(selSetId) ? selSetId : S().activeSetId();     // default: the set selected in "מאגרי שאלות"
+      Object.assign(IM, { state: 'preview', kind: res.kind, sheets: res.sheets, sheet: 0, newName: res.name, target: 'add', skipDups: true });
+      IM.setId = selSetId && S().getSet(selSetId) ? selSetId : S().activeSetId();     // default: the set selected in "אוספי שאלות"
+      if (IM.setId === S().DEMO_SET_ID) IM.target = 'new';                             // keep the demo set clean: a client's file gets its own set
       buildPreviewRows();
       paintWorkspace();
     }).catch((e) => {
@@ -1112,7 +1279,31 @@
 
   function buildPreviewRows() {
     const sh = IM.sheets[IM.sheet] || { rows: [] };
-    IM.rows = sh.rows.map((raw) => { const q = S().normalizeQuestion(raw, { newId: true }); return { q, errs: S().validateQuestion(q) }; });
+    IM.rows = sh.rows.map((raw) => { const q = S().normalizeQuestion(raw, { newId: true }); const errs = S().validateQuestion(q); return { q, errs, long: errs.length ? '' : longNote(q) }; });
+  }
+  /** Mark valid rows that already exist in the target set ('set') or earlier in the file ('file'). */
+  function markDups() {
+    const tset = IM.target === 'add' ? S().getSet(IM.setId) : null;      // 'replace' and 'new' start from an empty set
+    const inSet = new Set(tset ? tset.questions.map(dupKey) : []);
+    const seen = new Map();
+    IM.rows.forEach((r, i) => {
+      r.dup = null; r.dupOf = -1;
+      if (r.errs.length) return;
+      const k = dupKey(r.q);
+      if (inSet.has(k)) r.dup = 'set';
+      else if (seen.has(k)) { r.dup = 'file'; r.dupOf = seen.get(k); }
+      else seen.set(k, i);
+    });
+  }
+
+  /** What restoring the demo questions will do — nothing is deleted (the store keeps every non-demo question). */
+  function restoreText() {
+    const d = S().getSet(S().DEMO_SET_ID);
+    if (!d) return 'האוסף «רמה 2 — הדגמה» ייווצר מחדש עם 4 שאלות ההדגמה ויהיה האוסף הפעיל במשחק. שאר האוספים לא ישתנו.';
+    const extra = d.questions.filter((q) => !String(q.id).startsWith('demo-')).length;
+    return `4 שאלות ההדגמה המקוריות יוחזרו לאוסף «${d.name}»: שאלה שנמחקה תתווסף מחדש, ושאלה שנערכה תחזור לנוסח המקורי. `
+      + (extra === 1 ? 'השאלה האחרת שבאוסף תישאר כמו שהיא. ' : extra ? `${nf(extra)} השאלות האחרות שבאוסף יישארו כמו שהן. ` : '')
+      + `אחרי השחזור «${d.name}» יהיה האוסף הפעיל במשחק.`;
   }
 
   function renderImport() {
@@ -1135,15 +1326,18 @@
       h('p', 'מאגר השאלות הקיים של משחק הפלאש יוסב אוטומטית בלחיצה אחת — בלי הקלדה מחדש ובלי העתק־הדבק.'),
       h('ul.pro-list', ['שאלות ותשובות', 'חלוקה לרמות', 'בדיקת תקינות'].map((t) => h('li', ic('check'), t))));
 
+    const demoSetNow = S().getSet(S().DEMO_SET_ID);
+    const demoName = demoSetNow ? demoSetNow.name : 'רמה 2 — הדגמה';
     const demo = h('section.a-card.feat',
       h('div.feat-ic.demo', { html: I.refresh }),
       h('h3', 'שחזור שאלות ההדגמה'),
-      h('p', 'מחזיר את האוסף «רמה 2 — הדגמה» עם 4 שאלות ההדגמה ומגדיר אותו כפעיל. שאר האוספים לא ישתנו.'),
+      h('p', `מחזיר לאוסף «${demoName}» את 4 שאלות ההדגמה המקוריות ומגדיר אותו כפעיל. שאלות אחרות לא נמחקות.`),
       h('div.feat-acts', btn('שחזור שאלות ההדגמה', { icon: 'refresh', onclick: async () => {
-        const ok = await ui('confirm', 'שחזור שאלות ההדגמה', 'אוסף ההדגמה ישוחזר למצבו המקורי ויוגדר כאוסף הפעיל במשחק.', { ok: 'שחזור' });
+        const ok = await ui('confirm', 'שחזור שאלות ההדגמה', restoreText(), { ok: 'שחזור' });
         if (!ok) return;
         const s = S().restoreDemo(); selSetId = s.id; markSaved();
-        toast('שאלות ההדגמה שוחזרו', 'ok');
+        toast(`שאלות ההדגמה שוחזרו — «${s.name}» הוא האוסף הפעיל`, 'ok');
+        if (IM.state === 'preview') paintWorkspace(true);            // the target list shows set sizes
       } })));
 
     return page('ייבוא שאלות', 'טענו קובץ Excel, CSV או JSON — כל שורה נבדקת ומוצגת לאישור לפני שהיא נשמרת.',
@@ -1161,7 +1355,7 @@
   }
 
   function dropView() {
-    const input = h('input', { type: 'file', accept: '.xlsx,.xls,.csv,.json,.ods,.txt', hidden: true });
+    const input = h('input', { type: 'file', accept: '.xlsx,.xlsm,.xls,.ods,.csv,.tsv,.txt,.json', hidden: true });
     input.addEventListener('change', () => { const f = input.files && input.files[0]; input.value = ''; handleFile(f); });
     const parsing = IM.state === 'parsing';
     const err = IM.state === 'error';
@@ -1189,16 +1383,23 @@
   }
 
   function previewView() {
-    const ok = IM.rows.filter((r) => !r.errs.length), bad = IM.rows.length - ok.length;
+    markDups();
+    const valid = IM.rows.filter((r) => !r.errs.length), bad = IM.rows.length - valid.length;
+    const dups = valid.filter((r) => r.dup).length, fresh = valid.length - dups;
+    const load = valid.filter((r) => !(r.dup && IM.skipDups));
     const sets = S().getSets();
     const kindIcon = IM.kind === 'json' ? 'braces' : 'sheet';
     const sheet = IM.sheets[IM.sheet];
+    const defPts = S().getSettings().points;
 
     const head = h('div.pv-head',
       h('div.pv-file.k-' + (IM.kind || 'xlsx'), { html: I[kindIcon] }),
       h('div.pv-file-txt', h('div.pv-name', fileLabel(IM.file ? IM.file.name : '')),
         h('div.pv-meta', rowsTxt(IM.rows.length), IM.kind === 'xlsx' ? ` · גיליון «${sheet.name}»` : '', IM.file && IM.file.size ? ` · ${sizeTxt(IM.file.size)}` : '')),
-      h('div.pv-sum', h('span.pill.ok', ic('check'), `${nf(ok.length)} תקינות`), bad ? h('span.pill.bad', ic('warn'), `${nf(bad)} יוחרגו`) : null),
+      h('div.pv-sum',
+        h('span.pill.ok', ic('check'), okShort(fresh)),
+        dups ? h('span.pill.dup', { title: IM.skipDups ? 'שאלות שכבר קיימות לא ייטענו שוב' : 'גם השאלות הכפולות ייטענו' }, ic('copy'), dups === 1 ? 'כפולה אחת' : `${nf(dups)} כפולות`) : null,
+        bad ? h('span.pill.bad', ic('warn'), bad === 1 ? 'אחת לא תיטען' : `${nf(bad)} לא ייטענו`) : null),
       btn('', { kind: 'ghost', icon: 'close', title: 'ביטול הייבוא', onclick: () => { IM.state = 'idle'; paintWorkspace(); } }));
 
     const sheetsBar = IM.sheets.length > 1 ? h('div.pv-sheets', h('span', 'גיליונות בקובץ:'),
@@ -1212,6 +1413,7 @@
       return sel;
     };
     const tset = S().getSet(IM.setId) || sets[0];
+    const tn = tset.questions.length;
     const nameIn = h('input.a-input', { type: 'text', value: IM.newName, dir: 'rtl', 'aria-label': 'שם האוסף החדש', placeholder: 'שם האוסף החדש' });
     nameIn.addEventListener('input', () => { IM.newName = nameIn.value; });
     const pick = (key, refocus) => {
@@ -1224,60 +1426,78 @@
       onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(key, true); } } },
     h('span.tgt-radio'), h('div.tgt-txt', h('div.tgt-title', title), h('div.tgt-desc', desc)), h('span.tgt-ic', { html: I[icon] || '' }));
     const target = h('div.pv-target', { role: 'radiogroup', 'aria-label': 'לאן לטעון' },
-      opt('add', 'plus', 'הוספה לאוסף', `אחרי ${qCount(tset.questions.length)} הקיימות`),
-      opt('replace', 'refresh', 'החלפת השאלות באוסף', tset.questions.length ? `${qCount(tset.questions.length)} הקיימות יוחלפו` : 'האוסף ריק כרגע'),
+      opt('add', 'plus', 'הוספה לאוסף', !tn ? 'האוסף ריק כרגע' : tn === 1 ? 'אחרי השאלה הקיימת' : `אחרי ${nf(tn)} השאלות הקיימות`),
+      opt('replace', 'refresh', 'החלפת השאלות באוסף', !tn ? 'האוסף ריק כרגע' : tn === 1 ? 'השאלה הקיימת תוחלף' : `${nf(tn)} השאלות הקיימות יוחלפו`),
       opt('new', 'layers', 'אוסף חדש', 'אוסף נפרד לתחרות או לרמה'));
     // one destination row under the cards: which set, or the new set's name
     const dest = h('label.pv-dest', h('span.pv-dest-lbl', ic(IM.target === 'new' ? 'edit' : 'layers'),
       IM.target === 'new' ? 'שם האוסף החדש:' : IM.target === 'replace' ? 'האוסף שבו יוחלפו השאלות:' : 'האוסף שאליו יתווספו השאלות:'),
     IM.target === 'new' ? nameIn : setSel());
 
-    // table
+    // table (a narrow points column only when the file has per-question points)
     const LIM = 300;
+    const showPts = IM.rows.some((r) => r.q.points > 0);
     const tb = h('tbody', IM.rows.slice(0, LIM).map((r, i) => {
-      const q = r.q, isBad = r.errs.length > 0;
-      return h('tr' + (isBad ? '.is-bad' : ''),
+      const q = r.q, isBad = r.errs.length > 0, skip = r.dup && IM.skipDups;
+      const dupTxt = r.dup === 'set' ? 'כבר קיימת באוסף' : r.dup === 'file' ? `כפולה בקובץ · כמו שורה ${nf(r.dupOf + 1)}` : '';
+      const st = isBad ? h('span.st-dot.bad', { html: I.x, title: errTxt(r.errs) })
+        : r.dup ? h('span.st-dot.dup', { html: I.copy, title: dupTxt + (skip ? ' — לא תיטען שוב' : '') })
+          : h('span.st-dot.ok', { html: I.check, title: 'תקינה' });
+      return h('tr' + (isBad ? '.is-bad' : '') + (skip ? '.is-dup' : ''),
         h('td.c-num', String(i + 1)),
-        h('td.c-st', h('span.st-dot' + (isBad ? '.bad' : '.ok'), { html: isBad ? I.x : I.check, title: isBad ? errTxt(r.errs) : 'תקינה' })),
-        h('td.c-q', h('div.pv-q', q.q || '—'), isBad ? h('div.pv-err', errTxt(r.errs)) : null),
+        h('td.c-st', st),
+        h('td.c-q', h('div.pv-q', q.q || '—'),
+          isBad ? h('div.pv-err', errTxt(r.errs)) : null,
+          r.dup ? h('div.pv-dup', ic('copy'), h('span', dupTxt)) : null,
+          !isBad && r.long ? h('div.pv-note', ic('info'), h('span', r.long)) : null),
         h('td.c-ok', q.correct || '—'),
         q.wrong.map((w) => h('td.c-bad', w || '—')),
-        h('td.c-src', q.source || '—'));
+        h('td.c-src', q.source || '—'),
+        showPts ? h('td.c-pts', q.points > 0 ? U.fmtScore(q.points) : h('span.pv-def', { title: 'ברירת המחדל מההגדרות' }, U.fmtScore(defPts))) : null);
     }));
     const table = h('div.pv-table', h('table.pv',
-      h('colgroup', h('col.w-num'), h('col.w-st'), h('col.w-q'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-src')),
-      h('thead', h('tr', h('th.c-num', '#'), h('th.c-st', h('span.sr', 'מצב')), HEAD.map((t, i) => h('th' + (i === 1 ? '.c-ok' : i >= 2 && i <= 4 ? '.c-bad' : ''), t)))),
+      h('colgroup', h('col.w-num'), h('col.w-st'), h('col.w-q'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-a'), h('col.w-src'), showPts ? h('col.w-pts') : null),
+      h('thead', h('tr', h('th.c-num', '#'), h('th.c-st', h('span.sr', 'מצב')), HEAD.map((t, i) => h('th' + (i === 1 ? '.c-ok' : i >= 2 && i <= 4 ? '.c-bad' : ''), t)),
+        showPts ? h('th.c-pts', 'נקודות') : null)),
       tb));
     const more = IM.rows.length > LIM ? h('div.pv-more', `מוצגות ${nf(LIM)} השורות הראשונות מתוך ${nf(IM.rows.length)}`) : null;
 
-    const go = btn(ok.length ? `טעינת ${qCount(ok.length)}` : 'אין שאלות תקינות לטעינה', { kind: 'primary', size: 'lg', icon: 'check', disabled: !ok.length, onclick: () => commitImport(ok.map((r) => r.q)) });
-    const foot = h('div.pv-foot',
-      h('div.pv-foot-txt', bad ? h('span', ic('info'), bad === 1 ? 'שורה אחת עם שגיאה לא תיטען. אפשר לתקן אותה בקובץ ולטעון שוב.' : `${nf(bad)} שורות עם שגיאות לא ייטענו. אפשר לתקן אותן בקובץ ולטעון שוב.`) : h('span', ic('check'), 'כל השורות תקינות ומוכנות לטעינה.')),
+    const go = btn(load.length ? `טעינת ${qCount(load.length)}` : valid.length ? 'אין שאלות חדשות לטעינה' : 'אין שאלות תקינות לטעינה',
+      { kind: 'primary', size: 'lg', icon: 'check', disabled: !load.length, onclick: () => commitImport(load.map((r) => r.q), valid.length - load.length) });
+    const dupBox = dups ? h('label.pv-check', h('input', { type: 'checkbox', checked: IM.skipDups ? true : null, onchange: (e) => { IM.skipDups = e.target.checked; paintWorkspace(true); } }),
+      h('span', dups === 1 ? 'דילוג על השאלה הכפולה' : `דילוג על ${nf(dups)} השאלות הכפולות`)) : null;
+    const footMsg = bad ? h('span', ic('info'), bad === 1 ? 'שורה אחת עם שגיאה לא תיטען. אפשר לתקן אותה בקובץ ולטעון שוב.' : `${nf(bad)} שורות עם שגיאות לא ייטענו. אפשר לתקן אותן בקובץ ולטעון שוב.`)
+      : dups && IM.skipDups ? h('span', ic('copy'), dups === 1 ? 'שאלה אחת כבר קיימת ולא תיטען שוב.' : `${nf(dups)} שאלות כבר קיימות ולא ייטענו שוב.`)
+        : h('span', ic('check'), 'כל השורות תקינות ומוכנות לטעינה.');
+    const foot = h('div.pv-foot', h('div.pv-foot-txt', footMsg), dupBox,
       btn('ביטול', { kind: 'ghost', onclick: () => { IM.state = 'idle'; paintWorkspace(); } }), go);
 
     return h('div.a-card.pv', head, sheetsBar, h('div.pv-section-lbl', 'לאן לטעון?'), target, dest, table, more, foot);
   }
 
-  async function commitImport(list) {
+  async function commitImport(list, skipped = 0) {
     let setId, name;
     if (IM.target === 'new') {
-      name = (IM.newName || '').trim() || 'אוסף מיובא';
-      const s = S().createSet(name, list); setId = s.id;
+      const s = S().createSet((IM.newName || '').trim() || 'אוסף מיובא', list);
+      setId = s.id; name = s.name;                       // the store may have added " (2)" to keep names unique
     } else {
       const s = S().getSet(IM.setId) || S().activeSet(); setId = s.id; name = s.name;
       if (IM.target === 'replace') {
-        if (s.questions.length) {
-          const ok = await ui('confirm', `החלפת השאלות באוסף «${s.name}»`, `${qCount(s.questions.length)} הקיימות יימחקו ויוחלפו ב־${qCount(list.length)} מהקובץ.`, { ok: 'החלפה', danger: true });
+        const n = s.questions.length, m = list.length;
+        if (n) {
+          const ok = await ui('confirm', `החלפת השאלות באוסף «${s.name}»`,
+            (n === 1 ? 'השאלה הקיימת תימחק ותוחלף' : `${nf(n)} השאלות הקיימות יימחקו ויוחלפו`) + (m === 1 ? ' בשאלה אחת מהקובץ.' : ` ב־${nf(m)} השאלות מהקובץ.`),
+            { ok: 'החלפה', danger: true });
           if (!ok) return;
         }
         S().replaceQuestions(setId, list);
       } else S().appendQuestions(setId, list);
     }
     selSetId = setId; markSaved();
-    IM.result = { count: list.length, setId, name, mode: IM.target };
+    IM.result = { count: list.length, setId, name, mode: IM.target, skipped };
     IM.state = 'done';
     paintWorkspace();
-    toast(`נטענו ${qCount(list.length)}`, 'ok');
+    toast(loadedTxt(list.length), 'ok');
   }
 
   function doneView() {
@@ -1289,9 +1509,10 @@
       h('div.done-check', { html: '<svg viewBox="0 0 120 120" aria-hidden="true"><circle class="dc-ring" cx="60" cy="60" r="50"/><path class="dc-tick" d="M38 61l15 15 30-32"/></svg>' },
         h('span.done-burst'),
         h('span.done-gems', { 'aria-hidden': 'true' }, Array.from({ length: 14 }, (_, i) => h('i', { style: { '--a': `${(i / 14) * 360 + (i % 2) * 9}deg`, '--d': `${70 + (i % 3) * 16}px`, '--c': EMBLEM[i % EMBLEM.length], '--t': `${(i % 4) * 40}ms` } })))),
-      h('h2.done-title', `נטענו ${qCount(r.count)}`),
+      h('h2.done-title', loadedTxt(r.count)),
       h('p.done-sub', r.mode === 'new' ? 'לאוסף חדש: ' : r.mode === 'replace' ? 'השאלות הוחלפו באוסף ' : 'נוספו לאוסף ', h('b', `«${s ? s.name : r.name}»`),
-        s ? ` · סה״כ ${qCount(s.questions.length)} באוסף` : ''),
+        s ? ` · סה״כ ${qCount(s.questions.length)} באוסף` : '',
+        r.skipped ? (r.skipped === 1 ? ' · שאלה כפולה אחת לא נטענה שוב' : ` · ${nf(r.skipped)} שאלות כפולות לא נטענו שוב`) : ''),
       h('div.done-acts', actBtn,
         btn('מעבר לעריכת השאלות', { icon: 'edit', onclick: () => { selSetId = r.setId; setTab('questions'); } }),
         btn('ייבוא קובץ נוסף', { kind: 'ghost', icon: 'upload', onclick: () => { IM.state = 'idle'; paintWorkspace(); } })));

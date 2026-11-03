@@ -19,7 +19,7 @@ await p.keyboard.press('Escape'); await W(500); await p.click('.modal [data-key=
 await p.click('.tile[data-n="8"]'); await W(700);
 ok(await p.locator('.modal [data-key="resume"]').count() === 1, 'choosing another hive asks about hive 7 in progress');
 await p.keyboard.press('Enter'); await W(200); await p.keyboard.press('Enter'); await W(900);   // Enter = resume (default), double Enter absorbed
-ok((await p.evaluate(() => CH.ui.current)) === 'play' && (await p.evaluate(() => CH.store.current().n)) === 7, 'default action resumes hive 7');
+ok(await until(async () => (await p.evaluate(() => CH.ui.current === 'play' && CH.store.current() && CH.store.current().n === 7)), 8000), 'default action resumes hive 7');
 await until(async () => (await phase()) === 'pre'); await p.keyboard.press('Escape'); await W(500); await p.click('.modal [data-key="leave"]'); await until(async () => (await p.evaluate(() => CH.ui.current)) === 'board'); await W(800);
 await p.click('.tile[data-n="8"]'); await W(700); await p.click('.modal [data-key="finish"]'); await W(800);
 ok((await p.evaluate(() => CH.store.resultOf(7) && CH.store.resultOf(7).score)) === 12, 'finish records hive 7 with 12 points');
