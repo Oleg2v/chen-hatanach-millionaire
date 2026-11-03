@@ -217,11 +217,13 @@
     }
   }
 
-  /** Low body hit with a pitch drop; the 2nd harmonic keeps it audible on small projector speakers. */
-  function thump(ctx, dest, t, { f0 = 100, f1 = 48, amp = 0.3, dur = 0.2, harm = 0.45 } = {}) {
+  /** Low body hit with a pitch drop. Projector speakers play almost nothing below ~180 Hz, so the 2nd harmonic and
+   *  a short mid "knock" (≈ 300 → 150 Hz) carry the beat there; the sub body is for real PA systems. */
+  function thump(ctx, dest, t, { f0 = 100, f1 = 48, amp = 0.3, dur = 0.2, harm = 0.45, knock = 0.3 } = {}) {
     tone(ctx, dest, t, f0, { f1, glide: dur * 0.6, amp, a: 0.003, dur });
     tone(ctx, dest, t, f0 * 2, { type: 'triangle', f1: f1 * 2, glide: dur * 0.5, amp: amp * harm, a: 0.003, dur: dur * 0.6 });
-    noise(ctx, dest, t, 0.035, { amp: amp * 0.18, type: 'lowpass', f: 700, q: 0.6, a: 0.002 });
+    if (knock) tone(ctx, dest, t, f0 * 3.1, { f1: f1 * 3.1, glide: dur * 0.3, amp: amp * knock, a: 0.002, dur: dur * 0.32 });
+    noise(ctx, dest, t, 0.04, { amp: amp * 0.2, type: 'lowpass', f: 1000, q: 0.6, a: 0.002 });
   }
 
   /** Timpani: circular-membrane modes with a slight pitch settle, plus a felt-mallet thud. */
@@ -334,18 +336,19 @@
     const env = gainNode(ctx, 1);                     // whole sound is cut off, unresolved, at 1.5 s
     env.gain.setValueAtTime(1, t + LOCK - 0.06); env.gain.linearRampToValueAtTime(0, t + LOCK + 0.04);
     env.connect(L);
-    // heartbeat: lub-dub, accelerating and getting stronger
-    for (let x = 0, iv = 0.42; x < LOCK - 0.2; x += iv, iv *= 0.82) {
-      const v = 0.6 + 0.4 * (x / LOCK);
-      thump(ctx, env, t + x, { f0: 96, f1: 48, amp: 0.36 * v, dur: 0.2 });
-      thump(ctx, env, t + x + iv * 0.3, { f0: 84, f1: 44, amp: 0.22 * v, dur: 0.16 });
-    }
     // drone: A sus4 (A2 E3 A3 D4), filter opening and pitch slowly drifting up
     const dl = filter(ctx, 'lowpass', 160, 4.5);
     dl.frequency.setValueAtTime(160, t); dl.frequency.exponentialRampToValueAtTime(2600, t + LOCK);
-    const dg = gainNode(ctx, 0);
+    const dg = gainNode(ctx, 0), duck = gainNode(ctx, 1);
     dg.gain.setValueAtTime(0, t); dg.gain.linearRampToValueAtTime(0.05, t + 0.35); dg.gain.linearRampToValueAtTime(0.09, t + LOCK);
-    dl.connect(dg); dg.connect(env);
+    dl.connect(dg); dg.connect(duck); duck.connect(env);
+    // heartbeat: lub-dub, accelerating and getting stronger; the drone breathes out of its way on every "lub"
+    for (let x = 0, iv = 0.42; x < LOCK - 0.2; x += iv, iv *= 0.82) {
+      const v = 0.6 + 0.4 * (x / LOCK);
+      thump(ctx, env, t + x, { f0: 96, f1: 48, amp: 0.36 * v, dur: 0.2 });
+      thump(ctx, env, t + x + iv * 0.3, { f0: 84, f1: 44, amp: 0.22 * v, dur: 0.16, knock: 0.22 });
+      duck.gain.setTargetAtTime(0.45, t + x, 0.01); duck.gain.setTargetAtTime(1, t + x + 0.07, 0.1);
+    }
     for (const [m, c] of [[45, -6], [45, 7], [52, 0], [57, 4], [62, -3]]) {
       const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = mtof(m);
       o.detune.setValueAtTime(c, t); o.detune.linearRampToValueAtTime(c + 45, t + LOCK);
